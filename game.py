@@ -33,7 +33,10 @@ HORSE_X = 14                          # Fixed horizontal horse position.
 HORSE_W = 16                          # Horse collision/sprite width.
 HORSE_H = 11                          # Horse collision/sprite height.
 HORSE_GROUND_TOP = GROUND_Y - HORSE_H # Horse y position while on ground.
-JUMP_SPEED = -53                      # Initial jump speed; more negative jumps higher.
+JUMP_SPEED = -35                      # Starting jump speed; more negative starts higher.
+JUMP_HOLD_LIFT = -5                   # Extra upward speed while the button is held.
+JUMP_MAX_HOLD_MS = 210                # Longest time a held button can add jump height.
+JUMP_RELEASE_CUT_SPEED = -12          # Upward speed cap when the button is released early.
 GRAVITY = 6                           # Downward acceleration per frame.
 
 # Obstacle type IDs.
@@ -124,6 +127,9 @@ class Button:
             return False
 
         self.stable = current
+        return self.stable
+
+    def held(self):
         return self.stable
 
 
@@ -247,18 +253,19 @@ def draw_game_over(display, score, high_score):
     display.show()
 
 
-def update_led(led, state, now, horse_y):
+def perceived_led_duty(held_ms):
+    held_ms = min(held_ms, JUMP_MAX_HOLD_MS)
+    return (MAX_DUTY * held_ms * held_ms) // (JUMP_MAX_HOLD_MS * JUMP_MAX_HOLD_MS)
+
+
+def update_led(led, state, now, jump_hold_ms):
     if state == TITLE:
         phase = (now // 12) % 200
         if phase > 100:
             phase = 200 - phase
         led.duty_u16(phase * 180)
     elif state == RUNNING:
-        jump_height = HORSE_GROUND_TOP - horse_y
-        if jump_height > 0:
-            led.duty_u16(min(MAX_DUTY, 6000 + jump_height * 3600))
-        else:
-            led.duty_u16(0)
+        led.duty_u16(perceived_led_duty(jump_hold_ms))
     else:
         led.duty_u16(MAX_DUTY if (now // 140) & 1 else 0)
 
@@ -295,6 +302,7 @@ def main():
 
     horse_y10 = HORSE_GROUND_TOP * 10
     horse_vy10 = 0
+    jump_hold_ms = 0
     seed, obs_kind, obs_x10, obs_y, obs_w, obs_h = new_obstacle(seed, score)
 
     try:
@@ -310,14 +318,24 @@ def main():
                     distance10 = 0
                     horse_y10 = HORSE_GROUND_TOP * 10
                     horse_vy10 = 0
+                    jump_hold_ms = 0
                     seed, obs_kind, obs_x10, obs_y, obs_w, obs_h = new_obstacle(seed, score)
                 draw_title(display, frame)
 
             elif state == RUNNING:
+                held = button.held()
                 on_ground = horse_y10 >= HORSE_GROUND_TOP * 10
 
                 if pressed and on_ground:
                     horse_vy10 = JUMP_SPEED
+                    jump_hold_ms = 0
+
+                if horse_vy10 < 0:
+                    if held and jump_hold_ms < JUMP_MAX_HOLD_MS:
+                        horse_vy10 += JUMP_HOLD_LIFT
+                        jump_hold_ms = min(JUMP_MAX_HOLD_MS, jump_hold_ms + FRAME_MS)
+                    elif not held and horse_vy10 < JUMP_RELEASE_CUT_SPEED:
+                        horse_vy10 = JUMP_RELEASE_CUT_SPEED
 
                 horse_y10 += horse_vy10
                 horse_vy10 += GRAVITY
@@ -325,6 +343,7 @@ def main():
                 if horse_y10 >= HORSE_GROUND_TOP * 10:
                     horse_y10 = HORSE_GROUND_TOP * 10
                     horse_vy10 = 0
+                    jump_hold_ms = 0
 
                 speed10 = 22 + min(score // 18, 16)
                 distance10 += speed10
@@ -361,7 +380,7 @@ def main():
                 else:
                     draw_game_over(display, score, high_score)
 
-            update_led(led, state, frame_start, horse_y10 // 10)
+            update_led(led, state, frame_start, jump_hold_ms)
             frame += 1
 
             elapsed = ticks_diff(ticks_ms(), frame_start)
