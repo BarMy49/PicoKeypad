@@ -22,22 +22,28 @@ SWITCH_PULL = Pin.PULL_UP  # Internal pull resistor for the button pin.
 PRESSED_LEVEL = 0          # Pin value that means the button is pressed.
 
 # Timing and LED PWM settings.
-DEBOUNCE_MS = 35      # Button must stay changed this long to count.
+DEBOUNCE_MS = 25      # Minimum time between accepted button presses.
 FRAME_MS = 35         # Target frame time; lower is faster.
 PWM_FREQ = 1000       # LED PWM frequency in Hz.
 MAX_DUTY = 65535      # Maximum 16-bit PWM brightness.
 
 # Horse and world layout.
-GROUND_Y = 29                         # Ground line y position.
+GROUND_Y = 31                         # Ground line y position.
 HORSE_X = 14                          # Fixed horizontal horse position.
 HORSE_W = 16                          # Horse collision/sprite width.
 HORSE_H = 11                          # Horse collision/sprite height.
 HORSE_GROUND_TOP = GROUND_Y - HORSE_H # Horse y position while on ground.
-JUMP_SPEED = -35                      # Starting jump speed; more negative starts higher.
-JUMP_HOLD_LIFT = -5                   # Extra upward speed while the button is held.
+JUMP_SPEED = -28                      # Starting jump speed; more negative starts higher.
+JUMP_HOLD_LIFT = -4                   # Extra upward speed while the button is held.
 JUMP_MAX_HOLD_MS = 210                # Longest time a held button can add jump height.
 JUMP_RELEASE_CUT_SPEED = -12          # Upward speed cap when the button is released early.
 GRAVITY = 6                           # Downward acceleration per frame.
+OBSTACLE_GAP_MIN = 26                 # Smallest gap before the next obstacle appears.
+OBSTACLE_GAP_RANDOM = 30              # Extra random gap added to obstacle spacing.
+SCORE_DISTANCE10 = 85                 # Distance needed for one score point.
+BASE_SPEED10 = 24                     # Starting world speed in tenths of a pixel.
+SPEED_SCORE_STEP = 7                  # Score points between speed increases.
+MAX_SPEED_BOOST10 = 24                # Maximum added speed from score.
 
 # Obstacle type IDs.
 TREE = 0  # Ground obstacle that must be jumped.
@@ -106,31 +112,33 @@ class SSD1306_I2C(framebuf.FrameBuffer):
 class Button:
     def __init__(self, pin):
         self.pin = pin
-        self.last_read = self.is_down()
-        self.stable = self.last_read
-        self.last_change = ticks_ms()
+        self.press_latched = False
+        self.last_press = ticks_ms() - DEBOUNCE_MS
+
+        trigger = Pin.IRQ_FALLING if PRESSED_LEVEL == 0 else Pin.IRQ_RISING
+        self.pin.irq(trigger=trigger, handler=self._irq)
 
     def is_down(self):
         return self.pin.value() == PRESSED_LEVEL
 
+    def _irq(self, pin):
+        now = ticks_ms()
+        if self.is_down() and ticks_diff(now, self.last_press) >= DEBOUNCE_MS:
+            self.last_press = now
+            self.press_latched = True
+
     def pressed(self, now):
-        current = self.is_down()
-
-        if current != self.last_read:
-            self.last_read = current
-            self.last_change = now
-
-        if ticks_diff(now, self.last_change) < DEBOUNCE_MS:
+        if not self.press_latched:
             return False
 
-        if current == self.stable:
-            return False
-
-        self.stable = current
-        return self.stable
+        self.press_latched = False
+        return True
 
     def held(self):
-        return self.stable
+        return self.is_down()
+
+    def close(self):
+        self.pin.irq(handler=None)
 
 
 def scan_i2c(i2c):
@@ -154,10 +162,10 @@ def next_seed(seed):
 
 def new_obstacle(seed, score):
     seed = next_seed(seed)
-    gap = 38 + ((seed >> 8) % 42)
+    gap = OBSTACLE_GAP_MIN + ((seed >> 8) % OBSTACLE_GAP_RANDOM)
     x10 = (WIDTH + gap) * 10
 
-    if score > 18 and (seed & 3) == 0:
+    if score > 14 and (seed & 3) == 0:
         y = 8 + ((seed >> 4) & 1)
         return seed, BIRD, x10, y, 11, 6
 
@@ -208,11 +216,11 @@ def draw_bird(display, x, y, wing_up):
 
 
 def draw_ground(display, distance10):
-    display.hline(0, GROUND_Y + 1, WIDTH, 1)
+    display.hline(0, GROUND_Y, WIDTH, 1)
     offset = (distance10 // 10) % 16
     for x in range(-offset, WIDTH, 16):
-        safe_pixel(display, x, GROUND_Y)
-        safe_pixel(display, x + 9, GROUND_Y - 1)
+        safe_pixel(display, x, GROUND_Y - 1)
+        safe_pixel(display, x + 9, GROUND_Y - 2)
 
 
 def draw_obstacle(display, kind, x, y, width, height, frame):
@@ -345,9 +353,9 @@ def main():
                     horse_vy10 = 0
                     jump_hold_ms = 0
 
-                speed10 = 22 + min(score // 18, 16)
+                speed10 = BASE_SPEED10 + min(score // SPEED_SCORE_STEP, MAX_SPEED_BOOST10)
                 distance10 += speed10
-                score = distance10 // 100
+                score = distance10 // SCORE_DISTANCE10
                 obs_x10 -= speed10
 
                 if obs_x10 // 10 < -obs_w:
@@ -387,6 +395,7 @@ def main():
             if elapsed < FRAME_MS:
                 sleep_ms(FRAME_MS - elapsed)
     finally:
+        button.close()
         led.duty_u16(0)
 
 
