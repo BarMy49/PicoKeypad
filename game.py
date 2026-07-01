@@ -5,39 +5,45 @@ import framebuf
 
 # Raspberry Pi Pico + OLED 0.91" 128x32 SSD1306.
 # Uses the same pins as screen_test.py.
-I2C_ID = 0
-SDA_PIN = 20
-SCL_PIN = 21
-WIDTH = 128
-HEIGHT = 32
+# I2C bus and display pins.
+I2C_ID = 0       # Pico I2C bus number used by the OLED.
+SDA_PIN = 20     # OLED SDA/data pin.
+SCL_PIN = 21     # OLED SCL/clock pin.
+WIDTH = 128      # OLED width in pixels.
+HEIGHT = 32      # OLED height in pixels.
 
-LED_PIN = 6
-SWITCH_PIN = 9
+# Game input and feedback pins.
+LED_PIN = 6      # PWM LED pin for title, jump, and game-over feedback.
+SWITCH_PIN = 9   # Single button input pin.
 
 # Default wiring: switch connects GP9 to GND when pressed.
 # If your switch connects GP9 to 3V3 instead, use Pin.PULL_DOWN and level 1.
-SWITCH_PULL = Pin.PULL_UP
-PRESSED_LEVEL = 0
+SWITCH_PULL = Pin.PULL_UP  # Internal pull resistor for the button pin.
+PRESSED_LEVEL = 0          # Pin value that means the button is pressed.
 
-DEBOUNCE_MS = 35
-FRAME_MS = 35
-PWM_FREQ = 1000
-MAX_DUTY = 65535
+# Timing and LED PWM settings.
+DEBOUNCE_MS = 35      # Button must stay changed this long to count.
+FRAME_MS = 35         # Target frame time; lower is faster.
+PWM_FREQ = 1000       # LED PWM frequency in Hz.
+MAX_DUTY = 65535      # Maximum 16-bit PWM brightness.
 
-GROUND_Y = 29
-HORSE_X = 14
-HORSE_W = 16
-HORSE_H = 11
-HORSE_GROUND_TOP = GROUND_Y - HORSE_H
-JUMP_SPEED = -43
-GRAVITY = 6
+# Horse and world layout.
+GROUND_Y = 29                         # Ground line y position.
+HORSE_X = 14                          # Fixed horizontal horse position.
+HORSE_W = 16                          # Horse collision/sprite width.
+HORSE_H = 11                          # Horse collision/sprite height.
+HORSE_GROUND_TOP = GROUND_Y - HORSE_H # Horse y position while on ground.
+JUMP_SPEED = -53                      # Initial jump speed; more negative jumps higher.
+GRAVITY = 6                           # Downward acceleration per frame.
 
-TREE = 0
-BIRD = 1
+# Obstacle type IDs.
+TREE = 0  # Ground obstacle that must be jumped.
+BIRD = 1  # Flying obstacle that should be passed underneath.
 
-TITLE = 0
-RUNNING = 1
-GAME_OVER = 2
+# Game state IDs.
+TITLE = 0      # Title screen.
+RUNNING = 1    # Active gameplay.
+GAME_OVER = 2  # Game-over screen.
 
 
 class SSD1306_I2C(framebuf.FrameBuffer):
@@ -213,7 +219,7 @@ def draw_obstacle(display, kind, x, y, width, height, frame):
 def draw_title(display, frame):
     display.fill(0)
     display.text("HORSE RUN", 28, 2, 1)
-    display.text("PRESS BUTTON", 28, 13, 1)
+    display.text("PRESS BUTTON", 18, 13, 1)
     draw_ground(display, frame * 4)
     draw_horse(display, HORSE_X, HORSE_GROUND_TOP, (frame // 6) & 1)
     draw_tree(display, 98, GROUND_Y - 11, 8, 11)
@@ -235,9 +241,9 @@ def draw_game(display, horse_y, kind, obs_x10, obs_y, obs_w, obs_h, score,
 def draw_game_over(display, score, high_score):
     display.fill(0)
     display.text("GAME OVER", 28, 2, 1)
-    display.text("S:" + str(score), 12, 14, 1)
-    display.text("H:" + str(high_score), 72, 14, 1)
-    display.text("PRESS BUTTON", 28, 24, 1)
+    display.text("S:" + str(score), 20, 14, 1)
+    display.text("H:" + str(high_score), 77, 14, 1)
+    display.text("PRESS BUTTON", 18, 24, 1)
     display.show()
 
 
