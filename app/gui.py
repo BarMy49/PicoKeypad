@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 try:
     import pystray
     from PIL import Image, ImageDraw
+
     HAS_PYSTRAY = True
 except Exception:
     HAS_PYSTRAY = False
@@ -43,16 +44,15 @@ from .serial_transport import PicoKeypadClient, SerialConnectionError
 from .splash_store import DEFAULT_SPLASH_PATH, load_splash_binary, save_splash_binary
 from .system_status import get_media_status, get_volume_status, media_display_lines, volume_display_lines
 
-
 SCALE = 4
 
 
 class KeypadApp(tk.Tk):
     def __init__(
-        self,
-        initial_port: str | None = None,
-        bindings_path: str | None = None,
-        display_rules_path: str | None = None,
+            self,
+            initial_port: str | None = None,
+            bindings_path: str | None = None,
+            display_rules_path: str | None = None,
     ):
         super().__init__()
         self.title("Pico Keypad")
@@ -221,6 +221,22 @@ class KeypadApp(tk.Tk):
         scroll.grid(row=0, column=1, sticky="ns")
         self.log.configure(yscrollcommand=scroll.set)
 
+        # --- Obsługa scrollowania na całym oknie ---
+        self.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.bind_all("<Button-4>", self._on_mousewheel)
+        self.bind_all("<Button-5>", self._on_mousewheel)
+
+    def _on_mousewheel(self, event: tk.Event) -> None:
+        # Pomijamy akcję, jeśli kursor znajduje się nad polem tekstowym, listą, combo lub drzewem
+        if isinstance(event.widget, (tk.Text, ttk.Treeview, ttk.Combobox, tk.Listbox)):
+            return
+
+        # Sprawdzanie kierunku scrollowania (obsługa różnych platform)
+        if getattr(event, 'num', 0) == 4 or getattr(event, 'delta', 0) > 0:
+            self.right_canvas.yview_scroll(-1, "units")
+        elif getattr(event, 'num', 0) == 5 or getattr(event, 'delta', 0) < 0:
+            self.right_canvas.yview_scroll(1, "units")
+
     def _build_display_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=1)
         parent.rowconfigure(3, weight=1)
@@ -247,9 +263,12 @@ class KeypadApp(tk.Tk):
         splash.columnconfigure(0, weight=1)
         splash_buttons = ttk.Frame(splash)
         splash_buttons.grid(row=0, column=0, sticky="ew")
-        ttk.Button(splash_buttons, text="Load saved", command=self._load_saved_splash_preview).pack(side="left", padx=(0, 6))
-        ttk.Button(splash_buttons, text="Save current", command=self._save_current_splash).pack(side="left", padx=(0, 6))
-        ttk.Button(splash_buttons, text="Send on connect now", command=self._send_saved_splash_to_device).pack(side="left", padx=(0, 6))
+        ttk.Button(splash_buttons, text="Load saved", command=self._load_saved_splash_preview).pack(side="left",
+                                                                                                    padx=(0, 6))
+        ttk.Button(splash_buttons, text="Save current", command=self._save_current_splash).pack(side="left",
+                                                                                                padx=(0, 6))
+        ttk.Button(splash_buttons, text="Send on connect now", command=self._send_saved_splash_to_device).pack(
+            side="left", padx=(0, 6))
         ttk.Label(splash, textvariable=self.splash_status_var).grid(row=1, column=0, sticky="w", pady=(6, 0))
 
         self.text_input = tk.Text(parent, height=4, wrap="none", font=("Consolas", 10))
@@ -318,9 +337,9 @@ class KeypadApp(tk.Tk):
             self._draw_buffer_preview(self.splash_buffer)
 
     def _build_bindings_tab(self, parent: ttk.Frame) -> None:
-        parent.columnconfigure(0, weight=3)
-        parent.columnconfigure(1, weight=1)
-        parent.rowconfigure(5, weight=1)
+        parent.columnconfigure(0, weight=1)
+        # Zmieniamy wiersz, który ma się rozszerzać na drzewo wyników (wiersz 9)
+        parent.rowconfigure(9, weight=1)
 
         event_labels = [label for _, label in EVENTS]
 
@@ -344,36 +363,37 @@ class KeypadApp(tk.Tk):
         self.binding_kind_combo.grid(row=3, column=0, sticky="ew", pady=(2, 8))
         self.binding_kind_combo.bind("<<ComboboxSelected>>", self._on_binding_kind_changed)
 
-        ttk.Label(parent, text="Value / macro").grid(row=4, column=0, sticky="w")
-        self.binding_value_text = tk.Text(parent, height=7, wrap="word", font=("Consolas", 10))
-        self.binding_value_text.grid(row=5, column=0, sticky="nsew", pady=(2, 8))
+        # --- "Available keys" umieszczone pod "Action" ---
+        ttk.Label(parent, text="Available keys").grid(row=4, column=0, sticky="w")
 
-        key_panel = ttk.Frame(parent)
-        key_panel.grid(row=0, column=1, rowspan=8, sticky="nsew", padx=(12, 0))
-        key_panel.columnconfigure(0, weight=1)
-        key_panel.rowconfigure(1, weight=1)
-        ttk.Label(key_panel, text="Available keys").grid(row=0, column=0, sticky="w")
+        key_action_frame = ttk.Frame(parent)
+        key_action_frame.grid(row=5, column=0, sticky="ew", pady=(2, 8))
+        key_action_frame.columnconfigure(0, weight=1)
 
-        key_list_frame = ttk.Frame(key_panel)
-        key_list_frame.grid(row=1, column=0, sticky="nsew", pady=(2, 6))
-        key_list_frame.columnconfigure(0, weight=1)
-        key_list_frame.rowconfigure(0, weight=1)
-        self.key_listbox = tk.Listbox(key_list_frame, height=16, exportselection=False)
-        self.key_listbox.grid(row=0, column=0, sticky="nsew")
-        key_scroll = ttk.Scrollbar(key_list_frame, orient="vertical", command=self.key_listbox.yview)
-        key_scroll.grid(row=0, column=1, sticky="ns")
-        self.key_listbox.configure(yscrollcommand=key_scroll.set)
-        self.key_listbox.bind("<Double-Button-1>", self._on_key_list_double_click)
+        self.key_combo_var = tk.StringVar()
+        self.key_combo = ttk.Combobox(
+            key_action_frame,
+            textvariable=self.key_combo_var,
+            state="readonly",
+            height=15
+        )
+        self.key_combo.grid(row=0, column=0, sticky="ew", padx=(0, 8))
         self._populate_key_list()
 
-        ttk.Button(key_panel, text="Insert", command=self._insert_selected_key).grid(
-            row=2,
-            column=0,
-            sticky="ew",
+        ttk.Button(key_action_frame, text="Insert", command=self._insert_selected_key).grid(
+            row=0,
+            column=1
         )
+        # -------------------------------------------------
+
+        ttk.Label(parent, text="Value / macro").grid(row=6, column=0, sticky="w")
+        # --- Zmniejszone pole tekstowe (height=3 z 7) ---
+        self.binding_value_text = tk.Text(parent, height=3, wrap="word", font=("Consolas", 10))
+        self.binding_value_text.grid(row=7, column=0, sticky="nsew", pady=(2, 8))
+        # ------------------------------------------------
 
         buttons = ttk.Frame(parent)
-        buttons.grid(row=6, column=0, sticky="ew", pady=(0, 10))
+        buttons.grid(row=8, column=0, sticky="ew", pady=(0, 10))
         ttk.Button(buttons, text="Save", command=self._save_binding).pack(side="left", padx=(0, 6))
         ttk.Button(buttons, text="Test", command=self._test_binding).pack(side="left", padx=(0, 6))
         ttk.Button(buttons, text="Clear", command=self._clear_binding).pack(side="left", padx=(0, 12))
@@ -385,7 +405,7 @@ class KeypadApp(tk.Tk):
             show="headings",
             height=7,
         )
-        self.bindings_tree.grid(row=7, column=0, sticky="nsew")
+        self.bindings_tree.grid(row=9, column=0, sticky="nsew")
         self.bindings_tree.heading("event", text="Input")
         self.bindings_tree.heading("kind", text="Action")
         self.bindings_tree.heading("value", text="Value")
@@ -399,14 +419,15 @@ class KeypadApp(tk.Tk):
         self._refresh_bindings_tree()
 
     def _populate_key_list(self) -> None:
-        self.key_listbox.delete(0, "end")
-
+        values = []
         for group_name, keys in KEY_GROUPS:
-            self.key_listbox.insert("end", "[" + group_name + "]")
-            header_index = self.key_listbox.size() - 1
-            self.key_listbox.itemconfig(header_index, foreground="#666666")
+            values.append(f"--- {group_name} ---")
             for key in keys:
-                self.key_listbox.insert("end", key)
+                values.append(key)
+
+        self.key_combo["values"] = values
+        if values:
+            self.key_combo.current(0)
 
     def _draw_encoder(self) -> None:
         self.encoder_canvas.delete("all")
@@ -894,9 +915,9 @@ class KeypadApp(tk.Tk):
                 command, value = split_macro_line(raw_line.strip())
                 value = value.strip().lower()
                 if command in ("key", "press", "function") and value in (
-                    "volume_up",
-                    "volume_down",
-                    "volume_mute",
+                        "volume_up",
+                        "volume_down",
+                        "volume_mute",
                 ):
                     return value
 
@@ -991,8 +1012,8 @@ class KeypadApp(tk.Tk):
         elif kind == DISPLAY_MEDIA:
             self._set_display_value("Current media session")
         elif kind == DISPLAY_IMAGE and current in (
-            "System master volume",
-            "Current media session",
+                "System master volume",
+                "Current media session",
         ):
             self._set_display_value("")
 
@@ -1100,16 +1121,9 @@ class KeypadApp(tk.Tk):
         elif kind == ACTION_DISPLAY_TEXT and not current:
             self._set_binding_value("Button action\n{volume}% {mute}")
 
-    def _on_key_list_double_click(self, event: object | None = None) -> None:
-        self._insert_selected_key()
-
     def _insert_selected_key(self) -> None:
-        selection = self.key_listbox.curselection()
-        if not selection:
-            return
-
-        key_name = self.key_listbox.get(selection[0])
-        if key_name.startswith("[") and key_name.endswith("]"):
+        key_name = self.key_combo_var.get()
+        if not key_name or key_name.startswith("---"):
             return
 
         kind = self.binding_kind_var.get()
@@ -1333,9 +1347,9 @@ class KeypadApp(tk.Tk):
 
 
 def run(
-    port: str | None = None,
-    bindings_path: str | None = None,
-    display_rules_path: str | None = None,
+        port: str | None = None,
+        bindings_path: str | None = None,
+        display_rules_path: str | None = None,
 ) -> None:
     app = KeypadApp(
         initial_port=port,
