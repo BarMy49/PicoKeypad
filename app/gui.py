@@ -3,6 +3,15 @@ import queue
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+
+# Optional tray support using pystray + Pillow. If not available, the app will
+# still run but closing will fall back to withdrawing the window (no tray).
+try:
+    import pystray
+    from PIL import Image, ImageDraw
+    HAS_PYSTRAY = True
+except Exception:
+    HAS_PYSTRAY = False
 from typing import Any
 
 from .actions import (
@@ -59,6 +68,8 @@ class KeypadApp(tk.Tk):
         )
         self.reader_thread = None
         self.stop_reader = threading.Event()
+        # pystray Icon object (if tray support is available and active)
+        self._tray_icon = None
 
         self.port_var = tk.StringVar(value=initial_port or "")
         self.status_var = tk.StringVar(value="Disconnected")
@@ -145,8 +156,47 @@ class KeypadApp(tk.Tk):
         encoder.columnconfigure(0, weight=1)
         self._draw_encoder()
 
-        self.right_tabs = ttk.Notebook(root)
-        self.right_tabs.grid(row=1, column=1, sticky="nsew")
+        right_frame = ttk.Frame(root)
+        right_frame.grid(row=1, column=1, sticky="nsew", rowspan=2)
+        right_frame.columnconfigure(0, weight=1)
+        right_frame.rowconfigure(0, weight=1)
+
+        self.right_canvas = tk.Canvas(right_frame, highlightthickness=0)
+        self.right_canvas.grid(row=0, column=0, sticky="nsew")
+        right_vscroll = ttk.Scrollbar(right_frame, orient="vertical", command=self.right_canvas.yview)
+        right_vscroll.grid(row=0, column=1, sticky="ns")
+        self.right_canvas.configure(yscrollcommand=right_vscroll.set)
+
+        # Inner frame that will contain the Notebook
+        self._right_inner = ttk.Frame(self.right_canvas)
+        # Create a window inside the canvas to host the inner frame
+        self.right_canvas_window = self.right_canvas.create_window((0, 0), window=self._right_inner, anchor="nw")
+
+        # Make the notebook live inside the inner frame so its full height
+        # contributes to the canvas scrollregion.
+        self.right_tabs = ttk.Notebook(self._right_inner)
+        self.right_tabs.grid(row=0, column=0, sticky="nsew")
+        self._right_inner.columnconfigure(0, weight=1)
+        self._right_inner.rowconfigure(0, weight=1)
+
+        # Update scrollregion when the inner frame changes size
+        def _on_right_inner_config(event: tk.Event) -> None:
+            try:
+                self.right_canvas.configure(scrollregion=self.right_canvas.bbox("all"))
+            except Exception:
+                pass
+
+        self._right_inner.bind("<Configure>", _on_right_inner_config)
+
+        # Keep the inner window width in sync with the canvas width so the
+        # notebook expands horizontally instead of creating a horizontal scrollbar.
+        def _on_right_canvas_config(event: tk.Event) -> None:
+            try:
+                self.right_canvas.itemconfig(self.right_canvas_window, width=event.width)
+            except Exception:
+                pass
+
+        self.right_canvas.bind("<Configure>", _on_right_canvas_config)
 
         display_panel = ttk.Frame(self.right_tabs, padding=10)
         self.right_tabs.add(display_panel, text="Display")
@@ -158,8 +208,9 @@ class KeypadApp(tk.Tk):
         self.bindings_tab = bindings_panel
         self._build_bindings_tab(bindings_panel)
 
+        # Put the serial log under the Input panel on the left column only
         log_panel = ttk.LabelFrame(root, text="Serial Log", padding=8)
-        log_panel.grid(row=2, column=0, columnspan=2, sticky="nsew", pady=(10, 0))
+        log_panel.grid(row=2, column=0, columnspan=1, sticky="nsew", pady=(10, 0))
         log_panel.columnconfigure(0, weight=1)
         log_panel.rowconfigure(0, weight=1)
         root.rowconfigure(2, weight=1)
@@ -1160,11 +1211,125 @@ class KeypadApp(tk.Tk):
         self.log.configure(state="disabled")
 
     def _on_close(self) -> None:
-        if self.client.is_open:
-            self.disconnect()
+        # Hide to system tray on window close if pystray is available.
+        if HAS_PYSTRAY:
+            # If already hidden, do nothing
+            if self._tray_icon is not None:
+                return
+
+            # Withdraw the window so it disappears from the taskbar
+            try:
+                self.withdraw()
+            except Exception:
+                pass
+
+            # Create and run the tray icon in a background thread
+            try:
+                self._create_tray_icon()
+                self._log("Application hidden to system tray")
+            except Exception as exc:
+                # If tray creation failed, fallback to normal shutdown
+                self._log(f"Tray icon failed: {exc}")
+                if self.client.is_open:
+                    self.disconnect()
+                else:
+                    self._cancel_splash_inactivity_timer()
+                self.destroy()
         else:
-            self._cancel_splash_inactivity_timer()
-        self.destroy()
+            # No tray support: withdraw the window and inform the user how to
+            # restore or install tray support. This avoids unexpectedly
+            # destroying the app when user expects it to hide.
+            try:
+                self.withdraw()
+            except Exception:
+                pass
+            messagebox.showinfo(
+                "Hidden",
+                "Application hidden. To enable system tray behavior install 'pystray' and 'Pillow' and restart the app.\n\nTo quit completely run the app again and choose Quit from the menu (if available) or press Ctrl+C in the terminal.",
+            )
+
+    def _create_tray_icon(self) -> None:
+        """Create and start a pystray icon in a background thread.
+
+        The icon menu contains 'Show' and 'Quit'. Callbacks schedule GUI
+        actions on the tkinter main thread via `after`.
+        """
+        if not HAS_PYSTRAY:
+            raise RuntimeError("pystray not available")
+
+        # Create a simple image for the tray icon.
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        # Simple filled circle with border
+        draw.ellipse((4, 4, 60, 60), fill=(31, 157, 85, 255), outline=(0, 0, 0, 255))
+
+        def _on_show(icon, item):
+            # Schedule showing the window on the main thread
+            try:
+                self.after(0, self._show_from_tray)
+            except Exception:
+                pass
+
+        def _on_quit(icon, item):
+            try:
+                self.after(0, self._quit_from_tray)
+            except Exception:
+                pass
+
+        menu = pystray.Menu(pystray.MenuItem("Show", _on_show), pystray.MenuItem("Quit", _on_quit))
+        icon = pystray.Icon("pico_keypad", img, "Pico Keypad", menu)
+        self._tray_icon = icon
+
+        def _run_icon() -> None:
+            try:
+                icon.run()
+            except Exception:
+                # Ensure we don't keep broken icon reference
+                try:
+                    self._tray_icon = None
+                except Exception:
+                    pass
+
+        thread = threading.Thread(target=_run_icon, daemon=True)
+        thread.start()
+
+    def _show_from_tray(self) -> None:
+        # Stop and remove the tray icon, then deiconify the window
+        try:
+            if self._tray_icon is not None:
+                try:
+                    self._tray_icon.stop()
+                except Exception:
+                    pass
+                self._tray_icon = None
+        finally:
+            try:
+                self.deiconify()
+                self.lift()
+                self.focus_force()
+            except Exception:
+                pass
+
+    def _quit_from_tray(self) -> None:
+        # Cleanup and quit the application
+        try:
+            if self.client.is_open:
+                self.disconnect()
+            else:
+                self._cancel_splash_inactivity_timer()
+        finally:
+            try:
+                if self._tray_icon is not None:
+                    try:
+                        self._tray_icon.stop()
+                    except Exception:
+                        pass
+                    self._tray_icon = None
+            finally:
+                try:
+                    self.destroy()
+                except Exception:
+                    pass
 
 
 def run(
