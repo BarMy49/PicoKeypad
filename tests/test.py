@@ -9,15 +9,15 @@ except ImportError:
 
 
 # Raspberry Pi Pico + OLED 0.91" 128x32 SSD1306:
-#   GP12 -> SDA
-#   GP13 -> SCL
-#   3V3  -> VCC
-#   GND  -> GND
-I2C_ID = 0
-SDA_PIN = 12
-SCL_PIN = 13
-I2C_FREQ = 100000
-I2C_RETRIES = 3
+I2C_ID = 1
+SDA_PIN = 2
+SCL_PIN = 3
+I2C_FREQ = 50000
+I2C_RETRIES = 5
+I2C_SCAN_RETRIES = 5
+I2C_POWERUP_MS = 300
+I2C_RETRY_DELAY_MS = 50
+I2C_DATA_CHUNK = 32
 WIDTH = 128
 HEIGHT = 32
 
@@ -50,11 +50,12 @@ I2C1_ALTERNATE_BUSES = (
 
 
 class SSD1306_I2C(framebuf.FrameBuffer):
-    def __init__(self, width, height, i2c, addr=0x3C):
+    def __init__(self, width, height, i2c, addr=0x3C, config=None):
         self.width = width
         self.height = height
         self.i2c = i2c
         self.addr = addr
+        self.config = config
         self.pages = self.height // 8
         self.buffer = bytearray(self.pages * self.width)
         super().__init__(self.buffer, self.width, self.height, framebuf.MONO_VLSB)
@@ -64,10 +65,27 @@ class SSD1306_I2C(framebuf.FrameBuffer):
         self.write_with_retry(bytearray([0x80, cmd]), "cmd 0x{:02x}".format(cmd))
 
     def write_data(self, data):
-        packet = bytearray(1 + len(data))
-        packet[0] = 0x40
-        packet[1:] = data
-        self.write_with_retry(packet, "data {} bytes".format(len(data)))
+        for offset in range(0, len(data), I2C_DATA_CHUNK):
+            chunk = data[offset:offset + I2C_DATA_CHUNK]
+            packet = bytearray(1 + len(chunk))
+            packet[0] = 0x40
+            packet[1:] = chunk
+            self.write_with_retry(packet, "data {}..{}".format(
+                offset, offset + len(chunk) - 1
+            ))
+
+    def recover_after_failure(self):
+        if self.config is None:
+            return
+
+        bus_name, sda_pin, scl_pin = self.config
+        recover_i2c_bus(sda_pin, scl_pin)
+
+        if bus_name != "soft" and SoftI2C is not None:
+            print("Przelaczam OLED na SoftI2C po bledzie zapisu.")
+            self.config = ("soft", sda_pin, scl_pin)
+
+        self.i2c = rebuild_i2c_from_config(self.config)
 
     def write_with_retry(self, packet, label):
         last_error = None
@@ -81,7 +99,11 @@ class SSD1306_I2C(framebuf.FrameBuffer):
                 print("I2C write failed on {}, attempt {}/{}: {}".format(
                     label, attempt, I2C_RETRIES, exc
                 ))
-                sleep_ms(20)
+
+                if self.config is not None and attempt < I2C_RETRIES:
+                    self.recover_after_failure()
+
+                sleep_ms(I2C_RETRY_DELAY_MS)
 
         raise last_error
 
@@ -143,22 +165,36 @@ def read_idle_levels(sda_pin, scl_pin):
     return sda_level, scl_level
 
 
-def scan_named_bus(name, i2c_factory):
+def scan_named_bus(name, i2c_factory, sda_pin=None, scl_pin=None):
     print("Skanuje {}...".format(name))
 
-    try:
-        i2c = i2c_factory()
-    except Exception as exc:
-        print("  Nie mozna uruchomic:", exc)
-        return None, []
+    i2c = None
+    last_error = None
 
-    try:
-        addresses = scan_i2c(i2c)
-    except Exception as exc:
-        print("  Skan zakonczony bledem:", exc)
-        return i2c, []
+    for attempt in range(1, I2C_SCAN_RETRIES + 1):
+        if attempt > 1:
+            print("  Ponawiam skan, proba {}/{}...".format(
+                attempt, I2C_SCAN_RETRIES
+            ))
+            if sda_pin is not None and scl_pin is not None:
+                recover_i2c_bus(sda_pin, scl_pin)
+            sleep_ms(I2C_RETRY_DELAY_MS)
 
-    return i2c, addresses
+        try:
+            i2c = i2c_factory()
+            addresses = scan_i2c(i2c)
+            if addresses:
+                return i2c, addresses
+        except Exception as exc:
+            last_error = exc
+            print("  Skan/proba {} zakonczona bledem: {}".format(
+                attempt, exc
+            ))
+
+    if last_error is not None:
+        print("  Ostatni blad I2C:", last_error)
+
+    return i2c, []
 
 
 def make_hardware_i2c(i2c_id, sda_pin, scl_pin):
@@ -201,11 +237,15 @@ def diagnose_primary_bus():
     print("Diagnoza: I2C{} SDA=GP{} SCL=GP{}, addr=0x3C".format(
         I2C_ID, SDA_PIN, SCL_PIN
     ))
+    sleep_ms(I2C_POWERUP_MS)
     read_idle_levels(SDA_PIN, SCL_PIN)
+    recover_i2c_bus(SDA_PIN, SCL_PIN)
 
     i2c, addresses = scan_named_bus(
         "hardware I2C{} GP{}/{}".format(I2C_ID, SDA_PIN, SCL_PIN),
         lambda: make_hardware_i2c(I2C_ID, SDA_PIN, SCL_PIN),
+        SDA_PIN,
+        SCL_PIN,
     )
     if addresses:
         return i2c, addresses, (I2C_ID, SDA_PIN, SCL_PIN)
@@ -213,14 +253,24 @@ def diagnose_primary_bus():
     i2c, addresses = scan_named_bus(
         "SoftI2C GP{}/{}".format(SDA_PIN, SCL_PIN),
         lambda: make_soft_i2c(SDA_PIN, SCL_PIN),
+        SDA_PIN,
+        SCL_PIN,
     )
     if addresses:
-        print("SoftI2C dziala na GP14/GP15, ale hardware I2C1 nie.")
-        print("To wskazuje na problem z hardware I2C1 albo firmware, nie na adres OLED.")
+        print("SoftI2C dziala na GP{}/GP{}, ale hardware I2C{} nie.".format(
+            SDA_PIN, SCL_PIN, I2C_ID
+        ))
+        print("To wskazuje na problem z hardware I2C{} albo firmware, nie na adres OLED.".format(
+            I2C_ID
+        ))
         return i2c, addresses, ("soft", SDA_PIN, SCL_PIN)
 
-    print("SoftI2C tez nie widzi urzadzenia na GP14/GP15.")
-    print("To bardziej wskazuje na linie/piny/zasilanie niz na sam kanal I2C1.")
+    print("SoftI2C tez nie widzi urzadzenia na GP{}/GP{}.".format(
+        SDA_PIN, SCL_PIN
+    ))
+    print("To bardziej wskazuje na linie/piny/zasilanie niz na sam kanal I2C{}.".format(
+        I2C_ID
+    ))
     return None, [], None
 
 
@@ -230,10 +280,14 @@ def scan_i2c1_alternates():
             "alternatywny I2C{} GP{}/{}".format(i2c_id, sda_pin, scl_pin),
             lambda i2c_id=i2c_id, sda_pin=sda_pin, scl_pin=scl_pin:
                 make_hardware_i2c(i2c_id, sda_pin, scl_pin),
+            sda_pin,
+            scl_pin,
         )
         if addresses:
-            print("I2C1 dziala na innej parze pinow.")
-            print("Jesli OLED jest na GP14/GP15, problemem moga byc same piny GP14/GP15 albo polaczenie.")
+            print("I2C{} dziala na innej parze pinow.".format(i2c_id))
+            print("Jesli OLED jest na GP{}/GP{}, problemem moga byc same piny albo polaczenie.".format(
+                SDA_PIN, SCL_PIN
+            ))
             return i2c, addresses, (i2c_id, sda_pin, scl_pin)
 
     return None, [], None
@@ -245,11 +299,24 @@ def init_display_or_none(i2c, address, config):
         bus_name, sda_pin, scl_pin, hex(address)
     ))
 
-    try:
-        return SSD1306_I2C(WIDTH, HEIGHT, i2c, address)
-    except OSError as exc:
-        print("Inicjalizacja OLED nie powiodla sie:", exc)
-        return None
+    last_error = None
+
+    for attempt in range(1, I2C_RETRIES + 1):
+        try:
+            return SSD1306_I2C(WIDTH, HEIGHT, i2c, address, config)
+        except OSError as exc:
+            last_error = exc
+            print("Inicjalizacja OLED nie powiodla sie, proba {}/{}: {}".format(
+                attempt, I2C_RETRIES, exc
+            ))
+
+            if attempt < I2C_RETRIES:
+                recover_i2c_bus(sda_pin, scl_pin)
+                sleep_ms(I2C_RETRY_DELAY_MS)
+                i2c = rebuild_i2c_from_config(config)
+
+    print("Ostatni blad inicjalizacji OLED:", last_error)
+    return None
 
 
 def try_soft_i2c_after_hardware_failure(address):
@@ -260,6 +327,8 @@ def try_soft_i2c_after_hardware_failure(address):
     i2c, addresses = scan_named_bus(
         "awaryjny SoftI2C GP{}/{}".format(SDA_PIN, SCL_PIN),
         lambda: make_soft_i2c(SDA_PIN, SCL_PIN),
+        SDA_PIN,
+        SCL_PIN,
     )
 
     if address not in addresses:

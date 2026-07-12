@@ -292,14 +292,17 @@ def init_display():
     return SSD1306_I2C(WIDTH, HEIGHT, i2c, address)
 
 
-def main():
-    display = init_display()
+def main(display=None, button=None, exit_requested=None, led=None):
+    if display is None:
+        display = init_display()
 
-    led = PWM(Pin(LED_PIN, Pin.OUT))
-    led.freq(PWM_FREQ)
+    if led is None:
+        led = PWM(Pin(LED_PIN, Pin.OUT))
+        led.freq(PWM_FREQ)
     led.duty_u16(0)
 
-    button = Button(Pin(SWITCH_PIN, Pin.IN, SWITCH_PULL))
+    if button is None:
+        button = Button(Pin(SWITCH_PIN, Pin.IN, SWITCH_PULL))
 
     state = TITLE
     high_score = 0
@@ -316,6 +319,9 @@ def main():
     try:
         while True:
             frame_start = ticks_ms()
+            if exit_requested is not None and exit_requested(frame_start):
+                return
+
             pressed = button.pressed(frame_start)
             horse_y = horse_y10 // 10
 

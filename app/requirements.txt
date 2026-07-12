@@ -1,0 +1,2 @@
+pyserial>=3.5
+winsdk==1.0.0b10; platform_system == "Windows"
