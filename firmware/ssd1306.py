@@ -28,6 +28,8 @@ class SSD1306_I2C(framebuf.FrameBuffer):
         self.bus_kind = bus_kind
         self.freq = freq
         self.data_chunk = data_chunk
+        self.partial_updates = True
+        self.shadow = None
         self.pages = self.height // 8
         self.buffer = bytearray(self.pages * self.width)
         super().__init__(self.buffer, self.width, self.height, framebuf.MONO_VLSB)
@@ -72,6 +74,11 @@ class SSD1306_I2C(framebuf.FrameBuffer):
         self.data_chunk = data_chunk
         self.i2c = make_i2c(self.bus_kind, self.freq)
 
+    def set_partial_updates(self, enabled):
+        self.partial_updates = enabled
+        if not enabled:
+            self.shadow = None
+
     def init_display(self):
         sleep_ms(100)
         for cmd in (
@@ -97,14 +104,69 @@ class SSD1306_I2C(framebuf.FrameBuffer):
         self.fill(0)
         self.show()
 
-    def show(self):
+    def set_window(self, x0, x1, page0, page1):
         self.write_cmd(0x21)
-        self.write_cmd(0)
-        self.write_cmd(self.width - 1)
+        self.write_cmd(x0)
+        self.write_cmd(x1)
         self.write_cmd(0x22)
-        self.write_cmd(0)
-        self.write_cmd(self.pages - 1)
+        self.write_cmd(page0)
+        self.write_cmd(page1)
+
+    def show(self):
+        self.set_window(0, self.width - 1, 0, self.pages - 1)
         self.write_data(self.buffer)
+        if self.partial_updates:
+            self.shadow = bytearray(self.buffer)
+
+    def show_rect(self, x, y, width, height):
+        if width <= 0 or height <= 0:
+            return
+
+        x0 = max(0, int(x))
+        y0 = max(0, int(y))
+        x1 = min(self.width - 1, int(x + width - 1))
+        y1 = min(self.height - 1, int(y + height - 1))
+
+        if x0 > x1 or y0 > y1:
+            return
+
+        page0 = y0 // 8
+        page1 = y1 // 8
+
+        for page in range(page0, page1 + 1):
+            start = page * self.width + x0
+            end = page * self.width + x1 + 1
+            self.set_window(x0, x1, page, page)
+            self.write_data(self.buffer[start:end])
+
+            if self.partial_updates and self.shadow is not None:
+                self.shadow[start:end] = self.buffer[start:end]
+
+    def show_changed(self):
+        if not self.partial_updates or self.shadow is None:
+            self.show()
+            return
+
+        for page in range(self.pages):
+            page_start = page * self.width
+            x0 = None
+            x1 = None
+
+            for x in range(self.width):
+                index = page_start + x
+                if self.buffer[index] != self.shadow[index]:
+                    if x0 is None:
+                        x0 = x
+                    x1 = x
+
+            if x0 is None:
+                continue
+
+            start = page_start + x0
+            end = page_start + x1 + 1
+            self.set_window(x0, x1, page, page)
+            self.write_data(self.buffer[start:end])
+            self.shadow[start:end] = self.buffer[start:end]
 
 
 def make_i2c(kind="hardware", freq=None):

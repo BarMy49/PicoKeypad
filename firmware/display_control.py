@@ -33,6 +33,13 @@ def _coerce_lines(message):
     return lines
 
 
+def _show_changed(display):
+    if hasattr(display, "show_changed"):
+        display.show_changed()
+    else:
+        display.show()
+
+
 def draw_boot(display):
     display.fill(0)
     display.rect(0, 0, config.WIDTH, config.HEIGHT, 1)
@@ -47,7 +54,7 @@ def apply_display_command(display, message):
     if mode == "clear":
         color = 1 if message.get("color", 0) else 0
         display.fill(color)
-        display.show()
+        _show_changed(display)
         return {"mode": mode}
 
     if mode == "text":
@@ -66,7 +73,7 @@ def apply_display_command(display, message):
                 break
             display.text(line[:16], x, line_y, color)
 
-        display.show()
+        _show_changed(display)
         return {"mode": mode}
 
     if mode == "image":
@@ -83,8 +90,7 @@ def apply_display_command(display, message):
         for index, value in enumerate(raw):
             display.buffer[index] = value
 
-        display.show()
+        _show_changed(display)
         return {"mode": mode, "bytes": len(raw)}
 
     raise ValueError("unsupported display mode: {}".format(mode))
-

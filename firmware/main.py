@@ -94,6 +94,7 @@ def run_secret_mode(protocol, display, display_error, keyboard):
         return display, display_error
 
     try:
+        display.set_partial_updates(False)
         display.configure_bus(config.SECRET_I2C_FREQ, config.SECRET_I2C_DATA_CHUNK)
         from secret import main as secret_main
         secret_main.main(
@@ -114,6 +115,7 @@ def run_secret_mode(protocol, display, display_error, keyboard):
 
     try:
         display.configure_bus(config.I2C_FREQ, config.I2C_DATA_CHUNK)
+        display.set_partial_updates(True)
         draw_boot(display)
         return display, None
     except OSError as exc:
