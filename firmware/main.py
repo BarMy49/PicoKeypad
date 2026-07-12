@@ -155,6 +155,23 @@ def handle_command(protocol, display, display_error, message):
         protocol.send({"type": "pong"})
         return display, display_error
 
+    if message_type == "disconnect":
+        # Attempt to reinitialize the display (fresh) and draw the boot splash.
+        display, reinit_error = init_ready_display(display)
+        if display is None:
+            # Could not reinitialize display; propagate error
+            display_error = reinit_error
+            return display, display_error
+
+        try:
+            draw_boot(display)
+            display_error = None
+        except OSError as exc:
+            display = None
+            display_error = str(exc)
+
+        return display, display_error
+
     if message_type != "display":
         protocol.send({
             "type": "error",
@@ -249,7 +266,7 @@ def main():
                 display_error,
                 message,
             )
-            if display is None:
+            if display is None and message.get("type") != "disconnect":
                 next_display_reinit = ticks_add(ticks_ms(), config.DISPLAY_REINIT_MS)
 
         for event in keyboard.poll(now):

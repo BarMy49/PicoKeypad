@@ -14,6 +14,7 @@ except ImportError:
 class SerialProtocol:
     def __init__(self):
         self.poller = None
+        self.disconnected = False
 
         if select is not None:
             try:
@@ -31,6 +32,9 @@ class SerialProtocol:
             pass
 
     def read_commands(self, max_lines=8):
+        if self.disconnected:
+            return []
+
         if self.poller is None:
             return []
 
@@ -39,6 +43,10 @@ class SerialProtocol:
         while len(commands) < max_lines and self.poller.poll(0):
             line = sys.stdin.readline()
             if not line:
+                self.disconnected = True
+                commands.append({
+                    "type": "disconnect",
+                })
                 break
 
             line = line.strip()

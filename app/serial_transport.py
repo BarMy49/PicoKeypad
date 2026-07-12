@@ -132,3 +132,18 @@ class PicoKeypadClient:
     def send_image(self, buffer: bytes) -> None:
         self.send(protocol.build_display_image(buffer))
 
+    def send_disconnect(self) -> None:
+        """Send a disconnect notification to the device if the serial port is open.
+
+        This is best-effort: failures are ignored because we are usually closing the
+        connection immediately after.
+        """
+        if not self.is_open:
+            return
+
+        try:
+            self.send({"type": "disconnect"})
+        except Exception:
+            # Best effort — ignore any error while trying to notify the device.
+            pass
+

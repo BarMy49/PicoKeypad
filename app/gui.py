@@ -31,6 +31,7 @@ from .display_rules import (
 )
 from . import protocol
 from .serial_transport import PicoKeypadClient, SerialConnectionError
+from .splash_store import DEFAULT_SPLASH_PATH, load_splash_binary, save_splash_binary
 from .system_status import get_media_status, get_volume_status, media_display_lines, volume_display_lines
 
 
@@ -73,12 +74,16 @@ class KeypadApp(tk.Tk):
         self.encoder_direction: str | None = None
         self.encoder_button_down = False
         self.encoder_direction_after_id: str | None = None
+        self.splash_inactivity_after_id: str | None = None
+        self.preview_buffer: bytes | None = None
+        self.splash_buffer: bytes | None = load_splash_binary(DEFAULT_SPLASH_PATH)
+        self.splash_status_var = tk.StringVar(value=self._splash_status_text())
 
         self.key_widgets: dict[int, tk.Label] = {}
 
         self._build_ui()
         self.refresh_ports()
-        self.after(50, self._process_messages)
+        self.after(50, self._process_messages, None)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self) -> None:
@@ -186,12 +191,22 @@ class KeypadApp(tk.Tk):
         ttk.Button(manual, text="Clear", command=self.clear_display).pack(side="left", padx=(0, 12))
         ttk.Checkbutton(manual, text="Invert image", variable=self.image_invert_var).pack(side="left")
 
+        splash = ttk.LabelFrame(parent, text="Splash", padding=8)
+        splash.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        splash.columnconfigure(0, weight=1)
+        splash_buttons = ttk.Frame(splash)
+        splash_buttons.grid(row=0, column=0, sticky="ew")
+        ttk.Button(splash_buttons, text="Load saved", command=self._load_saved_splash_preview).pack(side="left", padx=(0, 6))
+        ttk.Button(splash_buttons, text="Save current", command=self._save_current_splash).pack(side="left", padx=(0, 6))
+        ttk.Button(splash_buttons, text="Send on connect now", command=self._send_saved_splash_to_device).pack(side="left", padx=(0, 6))
+        ttk.Label(splash, textvariable=self.splash_status_var).grid(row=1, column=0, sticky="w", pady=(6, 0))
+
         self.text_input = tk.Text(parent, height=4, wrap="none", font=("Consolas", 10))
-        self.text_input.grid(row=2, column=0, sticky="ew", pady=(0, 12))
+        self.text_input.grid(row=3, column=0, sticky="ew", pady=(0, 12))
         self.text_input.insert("1.0", "Pico Keypad\nReady")
 
         editor = ttk.LabelFrame(parent, text="Display Rules", padding=8)
-        editor.grid(row=3, column=0, sticky="nsew")
+        editor.grid(row=4, column=0, sticky="nsew")
         editor.columnconfigure(0, weight=1)
         editor.rowconfigure(5, weight=1)
         editor.rowconfigure(7, weight=1)
@@ -247,6 +262,9 @@ class KeypadApp(tk.Tk):
         self.display_event_var.set(event_labels[0])
         self._on_display_event_selected()
         self._refresh_display_rules_tree()
+        self._update_splash_status()
+        if self.splash_buffer is not None:
+            self._draw_buffer_preview(self.splash_buffer)
 
     def _build_bindings_tab(self, parent: ttk.Frame) -> None:
         parent.columnconfigure(0, weight=3)
@@ -431,6 +449,7 @@ class KeypadApp(tk.Tk):
         self.reader_thread.start()
         self._set_connected(True)
         self._log(f"Connected to {self.client.port}")
+        self._arm_splash_inactivity_timer()
 
         try:
             self.client.ping()
@@ -438,11 +457,24 @@ class KeypadApp(tk.Tk):
             self._log(f"Ping failed: {exc}")
 
     def disconnect(self) -> None:
+        # Try to notify the device that we're disconnecting so the firmware can
+        # show the ready splash immediately.
+        try:
+            if self.client.is_open:
+                self.client.send_disconnect()
+        except Exception:
+            # Best-effort: ignore errors while sending disconnect
+            pass
+
         self.stop_reader.set()
+        self._cancel_splash_inactivity_timer()
         if self.reader_thread and self.reader_thread.is_alive():
             self.reader_thread.join(timeout=0.5)
         self.reader_thread = None
-        self.client.close()
+        try:
+            self.client.close()
+        except Exception:
+            pass
         self._set_connected(False)
         self._log("Disconnected")
 
@@ -457,7 +489,7 @@ class KeypadApp(tk.Tk):
             if message:
                 self.messages.put(message)
 
-    def _process_messages(self) -> None:
+    def _process_messages(self, *_args: object) -> None:
         while True:
             try:
                 message = self.messages.get_nowait()
@@ -466,7 +498,7 @@ class KeypadApp(tk.Tk):
 
             self._handle_message(message)
 
-        self.after(50, self._process_messages)
+        self.after(50, self._process_messages, None)
 
     def _handle_message(self, message: dict[str, Any]) -> None:
         message_type = message.get("type")
@@ -475,7 +507,7 @@ class KeypadApp(tk.Tk):
             display = message.get("display", {})
             ready = "ready" if display.get("ready") else "not ready"
             self.status_var.set(f"Connected, display {ready}")
-            self._log(json.dumps(message, ensure_ascii=False))
+            self._log(json.dumps(message))
         elif message_type == "key":
             self._handle_key(message)
             self._run_binding_for_message(message)
@@ -500,7 +532,7 @@ class KeypadApp(tk.Tk):
             self._log(f"Connection error: {message.get('message')}")
             self.disconnect()
         elif message_type not in ("empty",):
-            self._log(message.get("message") or json.dumps(message, ensure_ascii=False))
+            self._log(message.get("message") or json.dumps(message))
 
     def _handle_key(self, message: dict[str, Any]) -> None:
         key = int(message.get("key", 0))
@@ -513,6 +545,7 @@ class KeypadApp(tk.Tk):
         else:
             widget.configure(bg="#f2f2f2", fg="#111111")
 
+        self._reset_splash_inactivity_timer()
         self._log(f"KEY {message.get('event')} {key}")
 
     def _handle_encoder(self, message: dict[str, Any]) -> None:
@@ -522,22 +555,40 @@ class KeypadApp(tk.Tk):
             self.encoder_direction = "cw" if delta > 0 else "ccw"
             self._draw_encoder()
             self._schedule_encoder_direction_clear()
+            self._reset_splash_inactivity_timer()
             self._log(f"ENC {message.get('delta')} pos={message.get('position')}")
         elif event in ("button_down", "button_up"):
             self.encoder_button_down = bool(message.get("pressed"))
             self._draw_encoder()
+            self._reset_splash_inactivity_timer()
             self._log(f"ENC {event}")
 
     def _schedule_encoder_direction_clear(self) -> None:
         if self.encoder_direction_after_id is not None:
             self.after_cancel(self.encoder_direction_after_id)
 
-        self.encoder_direction_after_id = self.after(350, self._clear_encoder_direction)
+        self.encoder_direction_after_id = self.after(350, self._clear_encoder_direction, None)
 
-    def _clear_encoder_direction(self) -> None:
+    def _clear_encoder_direction(self, *_args: object) -> None:
         self.encoder_direction_after_id = None
         self.encoder_direction = None
         self._draw_encoder()
+
+    def _arm_splash_inactivity_timer(self) -> None:
+        self._cancel_splash_inactivity_timer()
+        self.splash_inactivity_after_id = self.after(2000, self._send_saved_splash_if_present, None)
+
+    def _reset_splash_inactivity_timer(self) -> None:
+        if self.client.is_open:
+            self._arm_splash_inactivity_timer()
+
+    def _cancel_splash_inactivity_timer(self) -> None:
+        if self.splash_inactivity_after_id is not None:
+            try:
+                self.after_cancel(self.splash_inactivity_after_id)
+            except Exception:
+                pass
+            self.splash_inactivity_after_id = None
 
     def _run_binding_for_message(self, message: dict[str, Any]) -> None:
         event_id = event_id_from_message(message)
@@ -570,13 +621,9 @@ class KeypadApp(tk.Tk):
         if not rule.enabled():
             return
 
-        delay_ms = 600 if rule.kind == DISPLAY_MEDIA else 180 if rule.kind == DISPLAY_VOLUME else 0
-        if delay_ms:
-            self.after(delay_ms, lambda rule=rule: self._apply_display_rule(rule))
-        else:
-            self._apply_display_rule(rule)
+        self._apply_display_rule(rule)
 
-    def _apply_display_rule(self, rule: DisplayRule) -> None:
+    def _apply_display_rule(self, rule: DisplayRule, *_args: object) -> None:
         if rule.kind == DISPLAY_TEXT:
             self._send_display_lines(display_lines_from_value(rule.value), warn_if_disconnected=False)
         elif rule.kind == DISPLAY_IMAGE:
@@ -586,7 +633,7 @@ class KeypadApp(tk.Tk):
         elif rule.kind == DISPLAY_MEDIA:
             self._send_system_status_display(DISPLAY_MEDIA)
 
-    def _send_system_status_display(self, kind: str) -> None:
+    def _send_system_status_display(self, kind: str, *_args: object) -> None:
         def worker() -> None:
             if kind == DISPLAY_VOLUME:
                 lines = volume_display_lines(get_volume_status())
@@ -628,12 +675,78 @@ class KeypadApp(tk.Tk):
         try:
             photo = tk.PhotoImage(file=path)
             buffer = self._photo_to_oled_buffer(photo)
+            self.preview_buffer = buffer
             self.client.send_image(buffer)
             self._draw_buffer_preview(buffer)
             self._log(f"Image sent: {path}")
         except Exception as exc:
             messagebox.showerror("Image failed", str(exc))
             self._log(f"Image failed: {exc}")
+
+    def _splash_status_text(self) -> str:
+        if self.splash_buffer is not None:
+            return f"Splash ready: {DEFAULT_SPLASH_PATH.name} ({len(self.splash_buffer)} bytes)"
+        if DEFAULT_SPLASH_PATH.exists():
+            return f"Splash file present: {DEFAULT_SPLASH_PATH.name}"
+        return f"No splash saved at {DEFAULT_SPLASH_PATH.name}"
+
+    def _update_splash_status(self) -> None:
+        self.splash_status_var.set(self._splash_status_text())
+
+    def _load_saved_splash_preview(self) -> None:
+        buffer = load_splash_binary(DEFAULT_SPLASH_PATH)
+        if buffer is None:
+            self.splash_buffer = None
+            self._update_splash_status()
+            self._log(f"No valid splash file at {DEFAULT_SPLASH_PATH}")
+            messagebox.showinfo("Splash", f"No valid splash file found at {DEFAULT_SPLASH_PATH}")
+            return
+
+        self.splash_buffer = buffer
+        self.preview_buffer = buffer
+        self._update_splash_status()
+        self._draw_buffer_preview(buffer)
+        self._log(f"Loaded splash preview from {DEFAULT_SPLASH_PATH}")
+
+    def _save_current_splash(self) -> None:
+        buffer = self.preview_buffer or self.splash_buffer
+        if buffer is None:
+            messagebox.showwarning("Splash", "Load an image first")
+            return
+
+        try:
+            save_splash_binary(DEFAULT_SPLASH_PATH, buffer)
+            self.splash_buffer = buffer
+            self._update_splash_status()
+            self._log(f"Saved splash to {DEFAULT_SPLASH_PATH}")
+        except Exception as exc:
+            messagebox.showerror("Splash save failed", str(exc))
+            self._log(f"Splash save failed: {exc}")
+
+    def _send_saved_splash_if_present(self, *_args: object) -> bool:
+        self.splash_inactivity_after_id = None
+        buffer = load_splash_binary(DEFAULT_SPLASH_PATH)
+        if buffer is None:
+            self._update_splash_status()
+            self._log("No splash to send")
+            return False
+
+        try:
+            self.client.send_image(buffer)
+            self.splash_buffer = buffer
+            self._update_splash_status()
+            self._draw_buffer_preview(buffer)
+            self._log(f"Sent splash from {DEFAULT_SPLASH_PATH} on connect")
+            return True
+        except Exception as exc:
+            self._log(f"Splash send failed: {exc}")
+            return False
+
+    def _send_saved_splash_to_device(self) -> None:
+        if not self._can_send():
+            return
+        if not self._send_saved_splash_if_present():
+            messagebox.showinfo("Splash", f"No valid splash file found at {DEFAULT_SPLASH_PATH}")
 
     def _send_display_lines(self, lines: list[str], warn_if_disconnected: bool) -> None:
         lines = self._render_display_lines(lines)
@@ -645,11 +758,16 @@ class KeypadApp(tk.Tk):
             self._log("Display skipped: serial port is not connected")
             if warn_if_disconnected:
                 messagebox.showwarning("Not connected", "Connect to the Pico first")
+            # Arm inactivity timer so splash will appear after the configured delay
+            self._arm_splash_inactivity_timer()
             return
 
         try:
             self.client.send_text(lines)
             self._draw_text_preview(lines)
+            # Arm inactivity timer after updating the display so splash will be
+            # shown after the configured idle timeout.
+            self._arm_splash_inactivity_timer()
         except Exception as exc:
             if warn_if_disconnected:
                 messagebox.showerror("Send failed", str(exc))
@@ -675,11 +793,16 @@ class KeypadApp(tk.Tk):
             self._log("Display image skipped: serial port is not connected")
             if warn_if_disconnected:
                 messagebox.showwarning("Not connected", "Connect to the Pico first")
+            # Arm inactivity timer so splash will appear after the configured delay
+            self._arm_splash_inactivity_timer()
             return
 
         try:
             self.client.send_image(buffer)
             self._draw_buffer_preview(buffer)
+            # Arm inactivity timer after updating the display so splash will be
+            # shown after the configured idle timeout.
+            self._arm_splash_inactivity_timer()
         except Exception as exc:
             if warn_if_disconnected:
                 messagebox.showerror("Image failed", str(exc))
@@ -707,7 +830,7 @@ class KeypadApp(tk.Tk):
         if volume_action is None:
             return
 
-        self.after(180, lambda: self._send_system_status_display(DISPLAY_VOLUME))
+        self._send_system_status_display(DISPLAY_VOLUME)
 
     def _volume_action_from_action(self, action: Action) -> str | None:
         if action.kind == ACTION_FUNCTION:
@@ -1039,6 +1162,8 @@ class KeypadApp(tk.Tk):
     def _on_close(self) -> None:
         if self.client.is_open:
             self.disconnect()
+        else:
+            self._cancel_splash_inactivity_timer()
         self.destroy()
 
 
