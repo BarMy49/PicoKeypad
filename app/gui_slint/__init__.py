@@ -1,6 +1,7 @@
 import json
 import os
 import queue
+import sys
 import tempfile
 import threading
 import time
@@ -84,7 +85,11 @@ class SlintKeypadApp:
         self._last_rx_time = 0.0
         self._last_ping_time = 0.0
 
-        slint_file = os.path.join(os.path.dirname(__file__), "main_window.slint")
+        if getattr(sys, "frozen", False):
+            slint_dir = os.path.join(sys._MEIPASS, "app", "gui_slint")
+        else:
+            slint_dir = os.path.dirname(__file__)
+        slint_file = os.path.join(slint_dir, "main_window.slint")
         comps = slint.load_file(slint_file)
         self._window = comps.MainWindow()
         self._w = self._window
