@@ -1,0 +1,756 @@
+import { Button, CheckBox, ComboBox, LineEdit, TextEdit, ScrollView, TabWidget, VerticalBox, HorizontalBox, GroupBox, StandardListView, AboutSlint, Palette } from "std-widgets.slint";
+
+component KeyButton {
+    in-out property <int> key-num;
+    in-out property <bool> pressed;
+    callback clicked();
+
+    min-width: 56px;
+    min-height: 42px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+
+    rect := Rectangle {
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: #4a5568;
+        background: root.pressed ? #1f9d55 : #2d3748;
+
+        animate background { duration: 150ms; easing: ease; }
+
+        Text {
+            text: root.key-num;
+            color: root.pressed ? #ffffff : #e2e8f0;
+            font-weight: 700;
+            font-size: 14px;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+
+        TouchArea {
+            clicked => { root.clicked(); }
+        }
+    }
+}
+
+component EncoderDisplay {
+    in-out property <string> direction;
+    in-out property <bool> btn-pressed;
+    callback ccw-clicked();
+    callback cw-clicked();
+    callback btn-clicked();
+
+    min-width: 180px;
+    min-height: 110px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+
+    Rectangle {
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: #4a5568;
+        background: #1a202c;
+
+        HorizontalLayout {
+            padding: 8px;
+            spacing: 0;
+
+            ccw-area := Rectangle {
+                border-radius: 8px;
+                background: root.direction == "ccw" ? #1f9d55 : #2d3748;
+                min-width: 48px;
+                vertical-stretch: 1;
+
+                animate background { duration: 150ms; easing: ease; }
+
+                Text {
+                    text: "CCW";
+                    color: #e2e8f0;
+                    font-size: 11px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    clicked => { root.ccw-clicked(); }
+                }
+            }
+
+            knob := Rectangle {
+                border-radius: 24px;
+                border-width: 2px;
+                border-color: #4a5568;
+                background: #2d3748;
+                min-width: 56px;
+                min-height: 56px;
+                horizontal-stretch: 0;
+                vertical-stretch: 0;
+
+                btn := Rectangle {
+                    border-radius: 14px;
+                    border-width: 2px;
+                    border-color: root.btn-pressed ? #1f9d55 : #4a5568;
+                    background: root.btn-pressed ? #1f9d55 : #374151;
+                    min-width: 28px;
+                    min-height: 28px;
+
+                    animate background { duration: 100ms; }
+                    animate border-color { duration: 100ms; }
+
+                    Text {
+                        text: "BTN";
+                        color: root.btn-pressed ? #ffffff : #e2e8f0;
+                        font-size: 9px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+                TouchArea {
+                    clicked => { root.btn-clicked(); }
+                }
+            }
+
+            cw-area := Rectangle {
+                border-radius: 8px;
+                background: root.direction == "cw" ? #1f9d55 : #2d3748;
+                min-width: 48px;
+                vertical-stretch: 1;
+
+                animate background { duration: 150ms; easing: ease; }
+
+                Text {
+                    text: "CW";
+                    color: #e2e8f0;
+                    font-size: 11px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea {
+                    clicked => { root.cw-clicked(); }
+                }
+            }
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Pico Keypad";
+    preferred-width: 1000px;
+    preferred-height: 680px;
+    min-width: 900px;
+    min-height: 580px;
+
+    background: #171923;
+
+    in-out property <string> port-text: "";
+    in-out property <[string]> port-list;
+    in-out property <string> status-text: "Disconnected";
+    in-out property <bool> connected: false;
+
+    in-out property <bool> key-1-pressed: false;
+    in-out property <bool> key-2-pressed: false;
+    in-out property <bool> key-3-pressed: false;
+    in-out property <bool> key-4-pressed: false;
+    in-out property <bool> key-5-pressed: false;
+    in-out property <bool> key-6-pressed: false;
+    in-out property <bool> key-7-pressed: false;
+    in-out property <bool> key-8-pressed: false;
+    in-out property <bool> key-9-pressed: false;
+    in-out property <bool> key-10-pressed: false;
+    in-out property <bool> key-11-pressed: false;
+    in-out property <bool> key-12-pressed: false;
+
+    in-out property <string> encoder-direction: "";
+    in-out property <bool> encoder-btn-pressed: false;
+
+    in-out property <image> oled-preview-image;
+
+    in-out property <string> text-input: "Pico Keypad\nReady";
+
+    in-out property <string> splash-status: "No splash loaded";
+
+    in-out property <[string]> binding-events;
+    in-out property <string> binding-event: "";
+    in-out property <[string]> binding-kinds;
+    in-out property <string> binding-kind: "";
+    in-out property <string> binding-value: "";
+    in-out property <[string]> available-keys;
+    in-out property <string> selected-key: "";
+
+    in-out property <[string]> display-events;
+    in-out property <string> display-event: "";
+    in-out property <[string]> display-kinds;
+    in-out property <string> display-kind: "";
+    in-out property <string> display-value: "";
+
+    in-out property <bool> image-invert: false;
+
+    in-out property <[string]> log-lines;
+
+    in-out property <[string]> bindings-model;
+    in-out property <[string]> display-rules-model;
+    in-out property <int> selected-binding-index: -1;
+    in-out property <int> selected-display-rule-index: -1;
+
+    callback connect-clicked();
+    callback disconnect-clicked();
+    callback refresh-ports();
+    callback key-clicked(int);
+    callback encoder-ccw-clicked();
+    callback encoder-cw-clicked();
+    callback encoder-btn-clicked();
+
+    callback send-text();
+    callback load-image();
+    callback clear-display();
+    callback load-splash-preview();
+    callback save-current-splash();
+    callback send-splash-to-device();
+
+    callback save-binding();
+    callback test-binding();
+    callback clear-binding();
+    callback insert-key();
+
+    callback save-display-rule();
+    callback test-display-rule();
+    callback clear-display-rule();
+    callback browse-display-image();
+
+    callback binding-event-changed(string);
+    callback binding-kind-changed(string);
+    callback binding-item-selected(int);
+
+    callback display-event-changed(string);
+    callback display-kind-changed(string);
+    callback display-item-selected(int);
+
+    callback poll-messages();
+    callback watchdog-tick();
+
+    in-out property <bool> msg-timer-running: false;
+    in-out property <bool> wd-timer-running: false;
+
+    msg-timer := Timer {
+        interval: 50ms;
+        running <=> root.msg-timer-running;
+        triggered => { root.poll-messages(); }
+    }
+
+    wd-timer := Timer {
+        interval: 1000ms;
+        running <=> root.wd-timer-running;
+        triggered => { root.watchdog-tick(); }
+    }
+
+    VerticalBox {
+        spacing: 0;
+
+        toolbar := HorizontalLayout {
+            padding: 10px;
+            spacing: 10px;
+            alignment: center;
+
+            Rectangle {
+                background: #1a202c;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: #2d3748;
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    padding: 8px;
+                    alignment: center;
+
+                    Text {
+                        text: "Port";
+                        color: #a0aec0;
+                        font-size: 13px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
+
+                    ComboBox {
+                        min-width: 220px;
+                        model: root.port-list;
+                        current-value <=> root.port-text;
+                    }
+
+                    Button {
+                        text: "Refresh";
+                        clicked => { root.refresh-ports(); }
+                    }
+                }
+            }
+
+            Button {
+                text: "Connect";
+                enabled: !root.connected;
+                clicked => { root.connect-clicked(); }
+            }
+
+            Button {
+                text: "Disconnect";
+                enabled: root.connected;
+                clicked => { root.disconnect-clicked(); }
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+                background: transparent;
+
+                Text {
+                    text: root.status-text;
+                    color: root.connected ? #68d391 : #a0aec0;
+                    font-size: 13px;
+                    font-weight: 500;
+                    horizontal-alignment: end;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        main-area := HorizontalLayout {
+            spacing: 0;
+
+            left-panel := VerticalLayout {
+                min-width: 260px;
+                horizontal-stretch: 0;
+                padding: 14px;
+                spacing: 14px;
+
+                GroupBox {
+                    title: "Input";
+
+                    VerticalLayout {
+                        spacing: 10px;
+
+                        GridLayout {
+                            spacing: 6px;
+
+                            Row {
+                                key-1 := KeyButton {
+                                    key-num: 1;
+                                    pressed: root.key-1-pressed;
+                                    clicked => { root.key-clicked(1); }
+                                }
+                                key-2 := KeyButton {
+                                    key-num: 2;
+                                    pressed: root.key-2-pressed;
+                                    clicked => { root.key-clicked(2); }
+                                }
+                                key-3 := KeyButton {
+                                    key-num: 3;
+                                    pressed: root.key-3-pressed;
+                                    clicked => { root.key-clicked(3); }
+                                }
+                                key-4 := KeyButton {
+                                    key-num: 4;
+                                    pressed: root.key-4-pressed;
+                                    clicked => { root.key-clicked(4); }
+                                }
+                            }
+                            Row {
+                                key-5 := KeyButton {
+                                    key-num: 5;
+                                    pressed: root.key-5-pressed;
+                                    clicked => { root.key-clicked(5); }
+                                }
+                                key-6 := KeyButton {
+                                    key-num: 6;
+                                    pressed: root.key-6-pressed;
+                                    clicked => { root.key-clicked(6); }
+                                }
+                                key-7 := KeyButton {
+                                    key-num: 7;
+                                    pressed: root.key-7-pressed;
+                                    clicked => { root.key-clicked(7); }
+                                }
+                                key-8 := KeyButton {
+                                    key-num: 8;
+                                    pressed: root.key-8-pressed;
+                                    clicked => { root.key-clicked(8); }
+                                }
+                            }
+                            Row {
+                                key-9 := KeyButton {
+                                    key-num: 9;
+                                    pressed: root.key-9-pressed;
+                                    clicked => { root.key-clicked(9); }
+                                }
+                                key-10 := KeyButton {
+                                    key-num: 10;
+                                    pressed: root.key-10-pressed;
+                                    clicked => { root.key-clicked(10); }
+                                }
+                                key-11 := KeyButton {
+                                    key-num: 11;
+                                    pressed: root.key-11-pressed;
+                                    clicked => { root.key-clicked(11); }
+                                }
+                                key-12 := KeyButton {
+                                    key-num: 12;
+                                    pressed: root.key-12-pressed;
+                                    clicked => { root.key-clicked(12); }
+                                }
+                            }
+                        }
+
+                        encoder := EncoderDisplay {
+                            direction: root.encoder-direction;
+                            btn-pressed: root.encoder-btn-pressed;
+                            ccw-clicked => { root.encoder-ccw-clicked(); }
+                            cw-clicked => { root.encoder-cw-clicked(); }
+                            btn-clicked => { root.encoder-btn-clicked(); }
+                        }
+                    }
+                }
+
+                GroupBox {
+                    title: "Serial Log";
+
+                    ScrollView {
+                        min-height: 140px;
+                        vertical-stretch: 1;
+
+                        VerticalLayout {
+                            spacing: 2px;
+                            padding: 6px;
+
+                            for line in root.log-lines: Rectangle {
+                                min-height: 20px;
+                                horizontal-stretch: 1;
+                                background: transparent;
+
+                                Text {
+                                    text: line;
+                                    color: #a0aec0;
+                                    font-size: 11px;
+                                    font-family: "Consolas, monospace";
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            right-panel := Rectangle {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                background: #1a202c;
+
+                tabs := TabWidget {
+                    Tab {
+                        title: "Display";
+
+                        VerticalBox {
+                            spacing: 10px;
+
+                            Image {
+                                source: root.oled-preview-image;
+                                min-width: 512px;
+                                min-height: 128px;
+                                horizontal-stretch: 0;
+                                vertical-stretch: 0;
+                                image-fit: contain;
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: center;
+
+                                Button { text: "Send Text"; clicked => { root.send-text(); } }
+                                Button { text: "Load Image"; clicked => { root.load-image(); } }
+                                Button { text: "Clear"; clicked => { root.clear-display(); } }
+
+                                CheckBox {
+                                    text: "Invert image";
+                                    checked <=> root.image-invert;
+                                }
+                            }
+
+                            GroupBox {
+                                title: "Manual Text";
+
+                                VerticalBox {
+                                    TextEdit {
+                                        text <=> root.text-input;
+                                        min-height: 60px;
+                                        font-size: 13px;
+                                        font-family: "Consolas, monospace";
+                                    }
+                                }
+                            }
+
+                            GroupBox {
+                                title: "Splash";
+
+                                VerticalBox {
+                                    spacing: 6px;
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        Button { text: "Load saved"; clicked => { root.load-splash-preview(); } }
+                                        Button { text: "Save current"; clicked => { root.save-current-splash(); } }
+                                        Button { text: "Send on connect now"; clicked => { root.send-splash-to-device(); } }
+                                    }
+
+                                    Text {
+                                        text: root.splash-status;
+                                        color: #a0aec0;
+                                        font-size: 12px;
+                                    }
+                                }
+                            }
+
+                            GroupBox {
+                                title: "Display Rules";
+
+                                VerticalBox {
+                                    spacing: 8px;
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        VerticalBox {
+                                            min-width: 220px;
+
+                                            Text {
+                                                text: "Input";
+                                                color: #a0aec0;
+                                                font-size: 12px;
+                                                font-weight: 600;
+                                            }
+                                            ComboBox {
+                                                model: root.display-events;
+                                                current-value <=> root.display-event;
+                                                selected(value) => {
+                                                    root.display-event-changed(value);
+                                                }
+                                            }
+                                        }
+
+                                        VerticalBox {
+                                            min-width: 160px;
+
+                                            Text {
+                                                text: "OLED content";
+                                                color: #a0aec0;
+                                                font-size: 12px;
+                                                font-weight: 600;
+                                            }
+                                            ComboBox {
+                                                model: root.display-kinds;
+                                                current-value <=> root.display-kind;
+                                                selected(value) => {
+                                                    root.display-kind-changed(value);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Text {
+                                        text: "Text or image path";
+                                        color: #a0aec0;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                    }
+                                    TextEdit {
+                                        text <=> root.display-value;
+                                        min-height: 80px;
+                                        font-size: 12px;
+                                        font-family: "Consolas, monospace";
+                                    }
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        Button { text: "Save"; clicked => { root.save-display-rule(); } }
+                                        Button { text: "Test"; clicked => { root.test-display-rule(); } }
+                                        Button { text: "Image File"; clicked => { root.browse-display-image(); } }
+                                        Button { text: "Clear"; clicked => { root.clear-display-rule(); } }
+                                    }
+
+                                    ScrollView {
+                                        min-height: 120px;
+                                        vertical-stretch: 1;
+
+                                        VerticalLayout {
+                                            spacing: 2px;
+
+                                            for rule[idx] in root.display-rules-model: Rectangle {
+                                                min-height: 28px;
+                                                horizontal-stretch: 1;
+                                                border-radius: 4px;
+                                                border-width: 1px;
+                                                border-color: #2d3748;
+                                                background: idx == root.selected-display-rule-index ? #2d3748 : transparent;
+
+                                                Text {
+                                                    text: rule;
+                                                    color: idx == root.selected-display-rule-index ? #e2e8f0 : #a0aec0;
+                                                    font-size: 12px;
+                                                    vertical-alignment: center;
+                                                    horizontal-alignment: start;
+                                                    overflow: elide;
+                                                }
+
+                                                TouchArea {
+                                                    clicked => {
+                                                        root.selected-display-rule-index = idx;
+                                                        root.display-item-selected(idx);
+            }
+            }
+            }
+        }
+    }
+                                }
+                            }
+                        }
+                    }
+
+                    Tab {
+                        title: "Bindings";
+
+                        VerticalBox {
+                            spacing: 10px;
+
+                            GroupBox {
+                                title: "Bindings Editor";
+
+                                VerticalBox {
+                                    spacing: 8px;
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        VerticalBox {
+                                            min-width: 220px;
+
+                                            Text {
+                                                text: "Input";
+                                                color: #a0aec0;
+                                                font-size: 12px;
+                                                font-weight: 600;
+                                            }
+                                            ComboBox {
+                                                model: root.binding-events;
+                                                current-value <=> root.binding-event;
+                                                selected(value) => {
+                                                    root.binding-event-changed(value);
+                                                }
+                                            }
+                                        }
+
+                                        VerticalBox {
+                                            min-width: 160px;
+
+                                            Text {
+                                                text: "Action";
+                                                color: #a0aec0;
+                                                font-size: 12px;
+                                                font-weight: 600;
+                                            }
+                                            ComboBox {
+                                                model: root.binding-kinds;
+                                                current-value <=> root.binding-kind;
+                                                selected(value) => {
+                                                    root.binding-kind-changed(value);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        alignment: center;
+
+                                        VerticalBox {
+                                            min-width: 220px;
+
+                                            Text {
+                                                text: "Available keys";
+                                                color: #a0aec0;
+                                                font-size: 12px;
+                                                font-weight: 600;
+                                            }
+                                            ComboBox {
+                                                model: root.available-keys;
+                                                current-value <=> root.selected-key;
+                                            }
+                                        }
+
+                                        Button {
+                                            text: "Insert";
+                                            clicked => { root.insert-key(); }
+                                            vertical-stretch: 0;
+                                        }
+                                    }
+
+                                    Text {
+                                        text: "Value / macro";
+                                        color: #a0aec0;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                    }
+                                    TextEdit {
+                                        text <=> root.binding-value;
+                                        min-height: 60px;
+                                        font-size: 12px;
+                                        font-family: "Consolas, monospace";
+                                    }
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        Button { text: "Save"; clicked => { root.save-binding(); } }
+                                        Button { text: "Test"; clicked => { root.test-binding(); } }
+                                        Button { text: "Clear"; clicked => { root.clear-binding(); } }
+                                    }
+                                }
+                            }
+
+                            ScrollView {
+                                min-height: 160px;
+                                vertical-stretch: 1;
+
+                                VerticalLayout {
+                                    spacing: 2px;
+
+                                    for binding[idx] in root.bindings-model: Rectangle {
+                                        min-height: 28px;
+                                        horizontal-stretch: 1;
+                                        border-radius: 4px;
+                                        border-width: 1px;
+                                        border-color: #2d3748;
+                                        background: idx == root.selected-binding-index ? #2d3748 : transparent;
+
+                                        Text {
+                                            text: binding;
+                                            color: idx == root.selected-binding-index ? #e2e8f0 : #a0aec0;
+                                            font-size: 12px;
+                                            vertical-alignment: center;
+                                            horizontal-alignment: start;
+                                            overflow: elide;
+                                        }
+
+                                        TouchArea {
+                                            clicked => {
+                                                root.selected-binding-index = idx;
+                                                root.binding-item-selected(idx);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

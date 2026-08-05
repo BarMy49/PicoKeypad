@@ -1,7 +1,12 @@
 pyserial
 winsdk; platform_system == "Windows"
 
+# GUI toolkits
+# Slint (modern GUI variant, default) - requires Python >= 3.12
+slint>=1.16.0
+# PIL/Pillow used for OLED preview rendering and tray icon
+Pillow
+
 # Optional: tray icon support
 pystray
-Pillow
 

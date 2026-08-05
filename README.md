@@ -3,9 +3,6 @@
 A customizable USB keypad built on the Raspberry Pi Pico with a 128x32 OLED display, a 4x3 matrix of keys, and a control knob. Connect it to your computer and use it to control media, volume, and display custom status information.
 
 ## STILL IN DEVELOPEMENT
-### TODO:
-- debug, test and clean up the code for both the pico and app
-- create the 3D printed case for it (I'm no expert)
 
 ## What's Included
 
