@@ -3,9 +3,9 @@ from time import sleep_ms, ticks_diff, ticks_ms
 import framebuf
 
 
-I2C_ID = 0
-SDA_PIN = 20
-SCL_PIN = 21
+I2C_ID = 1
+SDA_PIN = 2
+SCL_PIN = 3
 WIDTH = 128
 HEIGHT = 32
 

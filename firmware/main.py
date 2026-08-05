@@ -32,18 +32,12 @@ class HoldModeToggle:
             self.down_at = now
             self.pending_down = event
             self.long_sent = False
-            return ()
+            return (event,)
 
         if event.get("event") == "up":
             if self.long_sent:
                 self.reset()
                 return ()
-
-            if self.pending_down is not None:
-                pending_down = self.pending_down
-                self.reset()
-                return (pending_down, event)
-
             self.reset()
             return (event,)
 
@@ -51,14 +45,21 @@ class HoldModeToggle:
 
     def triggered(self, now):
         if self.down_at is None or self.long_sent:
-            return False
+            return None
 
         if ticks_diff(now, self.down_at) < self.hold_ms:
-            return False
+            return None
 
         self.long_sent = True
+        self.down_at = None
+        pending_down = self.pending_down
         self.pending_down = None
-        return True
+        if pending_down is None:
+            return None
+
+        synthetic_up = dict(pending_down)
+        synthetic_up["event"] = "up"
+        return synthetic_up
 
 
 def init_ready_display(previous_display=None):
@@ -82,44 +83,50 @@ def key_is_down(keyboard, key):
 
 
 def run_secret_mode(protocol, display, display_error, keyboard):
-    if display is None:
-        display, display_error = init_ready_display()
-
-    if display is None:
-        protocol.send({
-            "type": "error",
-            "where": "secret",
-            "message": display_error or "display is not available",
-        })
-        return display, display_error
-
     try:
-        display.set_partial_updates(False)
-        display.configure_bus(config.SECRET_I2C_FREQ, config.SECRET_I2C_DATA_CHUNK)
-        from secret import main as secret_main
-        secret_main.main(
-            display=display,
-            keyboard=keyboard,
-            exit_key=config.SECRET_TOGGLE_KEY,
-            action_key=config.SECRET_ACTION_KEY,
-            hold_ms=config.SECRET_HOLD_MS,
-        )
-    except Exception as exc:
-        protocol.send({
-            "type": "error",
-            "where": "secret",
-            "message": str(exc),
-        })
+        if display is None:
+            display, display_error = init_ready_display()
+
+        if display is None:
+            protocol.send({
+                "type": "error",
+                "where": "secret",
+                "message": display_error or "display is not available",
+            })
+            return display, display_error
+
+        try:
+            display.set_partial_updates(False)
+            display.configure_bus(config.SECRET_I2C_FREQ, config.SECRET_I2C_DATA_CHUNK)
+            from secret import main as secret_main
+            secret_main.main(
+                display=display,
+                keyboard=keyboard,
+                exit_key=config.SECRET_TOGGLE_KEY,
+                action_key=config.SECRET_ACTION_KEY,
+                hold_ms=config.SECRET_HOLD_MS,
+            )
+        except Exception as exc:
+            protocol.send({
+                "type": "error",
+                "where": "secret",
+                "message": str(exc),
+            })
+        finally:
+            keyboard.reset()
+
+        try:
+            display.configure_bus(config.I2C_FREQ, config.I2C_DATA_CHUNK)
+            display.set_partial_updates(True)
+            draw_boot(display)
+            return display, None
+        except OSError as exc:
+            return None, str(exc)
     finally:
-        keyboard.reset()
-
-    try:
-        display.configure_bus(config.I2C_FREQ, config.I2C_DATA_CHUNK)
-        display.set_partial_updates(True)
-        draw_boot(display)
-        return display, None
-    except OSError as exc:
-        return None, str(exc)
+        protocol.send({
+            "type": "mode",
+            "state": "normal",
+        })
 
 
 def hello_message(display_ready, display_error):
@@ -273,7 +280,10 @@ def main():
             for output_event in secret_toggle.handle_event(event, now):
                 protocol.send(output_event)
 
-        if secret_toggle.triggered(now):
+        toggle_event = secret_toggle.triggered(now)
+        if toggle_event is not None:
+            protocol.send(toggle_event)
+            protocol.send({"type": "mode", "state": "secret"})
             display, display_error = run_secret_mode(
                 protocol,
                 display,

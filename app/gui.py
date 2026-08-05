@@ -1,6 +1,7 @@
 import json
 import queue
 import threading
+import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -91,6 +92,11 @@ class KeypadApp(tk.Tk):
         self.splash_status_var = tk.StringVar(value=self._splash_status_text())
 
         self.key_widgets: dict[int, tk.Label] = {}
+        self._dev_busy = False
+        self._ready_status: str | None = None
+        self._last_rx_time = 0.0
+        self._last_ping_time = 0.0
+        self._watchdog_after_id: str | None = None
 
         self._build_ui()
         self.refresh_ports()
@@ -521,6 +527,7 @@ class KeypadApp(tk.Tk):
         self.reader_thread.start()
         self._set_connected(True)
         self._log(f"Connected to {self.client.port}")
+        self._start_watchdog()
         self._arm_splash_inactivity_timer()
 
         try:
@@ -540,6 +547,7 @@ class KeypadApp(tk.Tk):
 
         self.stop_reader.set()
         self._cancel_splash_inactivity_timer()
+        self._stop_watchdog()
         if self.reader_thread and self.reader_thread.is_alive():
             self.reader_thread.join(timeout=0.5)
         self.reader_thread = None
@@ -568,6 +576,7 @@ class KeypadApp(tk.Tk):
             except queue.Empty:
                 break
 
+            self._last_rx_time = time.monotonic()
             self._handle_message(message)
 
         self.after(50, self._process_messages, None)
@@ -578,7 +587,9 @@ class KeypadApp(tk.Tk):
         if message_type == "hello":
             display = message.get("display", {})
             ready = "ready" if display.get("ready") else "not ready"
-            self.status_var.set(f"Connected, display {ready}")
+            self._ready_status = f"Connected, display {ready}"
+            if not self._dev_busy:
+                self.status_var.set(self._ready_status)
             self._log(json.dumps(message))
         elif message_type == "key":
             self._handle_key(message)
@@ -600,11 +611,72 @@ class KeypadApp(tk.Tk):
             self._send_display_image_path(str(message.get("path", "")), warn_if_disconnected=False)
         elif message_type == "pong":
             self._log("PONG")
+        elif message_type == "mode":
+            self._handle_mode(message)
         elif message_type == "connection_error":
             self._log(f"Connection error: {message.get('message')}")
             self.disconnect()
         elif message_type not in ("empty",):
             self._log(message.get("message") or json.dumps(message))
+
+    def _handle_mode(self, message: dict[str, Any]) -> None:
+        state = message.get("state")
+        if state == "secret":
+            self._set_dev_busy(True)
+        elif state == "normal":
+            self._set_dev_busy(False)
+
+    def _set_dev_busy(self, busy: bool) -> None:
+        if busy == self._dev_busy:
+            return
+
+        self._dev_busy = busy
+        if busy:
+            self.status_var.set("Game mode active - keypad offline")
+            self._cancel_splash_inactivity_timer()
+            self._log("Keypad entered game mode (K1 held)")
+        else:
+            self.status_var.set(self._ready_status or f"Connected to {self.client.port}")
+            if self.client.is_open:
+                self._arm_splash_inactivity_timer()
+            self._log("Keypad returned to normal mode")
+
+    def _start_watchdog(self) -> None:
+        self._dev_busy = False
+        self._last_rx_time = time.monotonic()
+        self._last_ping_time = 0.0
+        self._schedule_watchdog_tick()
+
+    def _stop_watchdog(self) -> None:
+        if self._watchdog_after_id is not None:
+            try:
+                self.after_cancel(self._watchdog_after_id)
+            except Exception:
+                pass
+            self._watchdog_after_id = None
+        self._dev_busy = False
+
+    def _schedule_watchdog_tick(self) -> None:
+        self._watchdog_after_id = self.after(1000, self._watchdog_tick)
+
+    def _watchdog_tick(self) -> None:
+        self._watchdog_after_id = None
+        if not self.client.is_open:
+            return
+
+        try:
+            now = time.monotonic()
+            if now - self._last_ping_time >= 1.0:
+                self._last_ping_time = now
+                try:
+                    self.client.ping()
+                except Exception:
+                    pass
+
+            self._set_dev_busy(now - self._last_rx_time > 2.5)
+            self._schedule_watchdog_tick()
+        except Exception:
+            pass
 
     def _handle_key(self, message: dict[str, Any]) -> None:
         key = int(message.get("key", 0))
