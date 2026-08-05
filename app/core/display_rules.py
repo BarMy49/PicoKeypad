@@ -45,7 +45,7 @@ class DisplayRule:
 
 
 def default_display_rules_path() -> Path:
-    return Path(__file__).resolve().with_name("display_rules.json")
+    return Path(__file__).parent.resolve().with_name("display_rules.json")
 
 
 class DisplayRuleStore:

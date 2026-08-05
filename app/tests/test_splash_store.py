@@ -2,8 +2,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from app import protocol
-from app.splash_store import load_splash_binary, save_splash_binary
+from app.core import protocol
+from app.core.splash_store import load_splash_binary, save_splash_binary
 
 
 class SplashStoreTests(unittest.TestCase):

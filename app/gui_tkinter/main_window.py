@@ -16,7 +16,7 @@ except Exception:
     HAS_PYSTRAY = False
 from typing import Any
 
-from .actions import (
+from ..core.actions import (
     ACTION_DISPLAY_TEXT,
     ACTION_FUNCTION,
     ACTION_HOTKEY,
@@ -29,8 +29,8 @@ from .actions import (
     display_lines_from_value,
     split_macro_line,
 )
-from .bindings import BindingStore, EVENT_LABELS, EVENTS, LABEL_EVENTS, event_id_from_message
-from .display_rules import (
+from ..core.bindings import BindingStore, EVENT_LABELS, EVENTS, LABEL_EVENTS, event_id_from_message
+from ..core.display_rules import (
     DISPLAY_IMAGE,
     DISPLAY_MEDIA,
     DISPLAY_NONE,
@@ -40,10 +40,10 @@ from .display_rules import (
     DisplayRule,
     DisplayRuleStore,
 )
-from . import protocol
-from .serial_transport import PicoKeypadClient, SerialConnectionError
-from .splash_store import DEFAULT_SPLASH_PATH, load_splash_binary, save_splash_binary
-from .system_status import get_media_status, get_volume_status, media_display_lines, volume_display_lines
+from ..core import protocol
+from ..core.serial_transport import PicoKeypadClient, SerialConnectionError
+from ..core.splash_store import DEFAULT_SPLASH_PATH, load_splash_binary, save_splash_binary
+from ..core.system_status import get_media_status, get_volume_status, media_display_lines, volume_display_lines
 
 SCALE = 4
 

@@ -20,7 +20,7 @@ LABEL_EVENTS = {label: event_id for event_id, label in EVENTS}
 
 
 def default_bindings_path() -> Path:
-    return Path(__file__).resolve().with_name("bindings.json")
+    return Path(__file__).parent.resolve().with_name("bindings.json")
 
 
 def event_id_from_message(message: dict) -> str | None:

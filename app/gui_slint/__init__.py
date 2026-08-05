@@ -19,7 +19,7 @@ try:
 except Exception:
     HAS_PYSTRAY = False
 
-from ..actions import (
+from ..core.actions import (
     ACTION_DISPLAY_TEXT,
     ACTION_FUNCTION,
     ACTION_HOTKEY,
@@ -32,8 +32,8 @@ from ..actions import (
     display_lines_from_value,
     split_macro_line,
 )
-from ..bindings import BindingStore, EVENT_LABELS, EVENTS, LABEL_EVENTS, event_id_from_message
-from ..display_rules import (
+from ..core.bindings import BindingStore, EVENT_LABELS, EVENTS, LABEL_EVENTS, event_id_from_message
+from ..core.display_rules import (
     DISPLAY_IMAGE,
     DISPLAY_MEDIA,
     DISPLAY_NONE,
@@ -43,10 +43,10 @@ from ..display_rules import (
     DisplayRule,
     DisplayRuleStore,
 )
-from .. import protocol
-from ..serial_transport import PicoKeypadClient, SerialConnectionError
-from ..splash_store import DEFAULT_SPLASH_PATH, load_splash_binary, save_splash_binary
-from ..system_status import get_media_status, get_volume_status, media_display_lines, volume_display_lines
+from ..core import protocol
+from ..core.serial_transport import PicoKeypadClient, SerialConnectionError
+from ..core.splash_store import DEFAULT_SPLASH_PATH, load_splash_binary, save_splash_binary
+from ..core.system_status import get_media_status, get_volume_status, media_display_lines, volume_display_lines
 
 SCALE = 2
 
@@ -89,6 +89,8 @@ class SlintKeypadApp:
         self._window = comps.MainWindow()
         self._w = self._window
 
+        self.preview_count = 0
+
         self._init_properties()
         self._wire_callbacks()
 
@@ -116,6 +118,7 @@ class SlintKeypadApp:
         w.selected_key = ""
 
         w.log_lines = slint.ListModel([])
+        w.port_list = slint.ListModel([])
         w.bindings_model = slint.ListModel([])
         w.display_rules_model = slint.ListModel([])
 
@@ -132,6 +135,7 @@ class SlintKeypadApp:
         w = self._w
         w.connect_clicked = self._on_connect
         w.disconnect_clicked = self._on_disconnect
+        w.toggle_connection = self._on_toggle_connection
         w.refresh_ports = self.refresh_ports
         w.key_clicked = self._on_key_clicked
         w.encoder_ccw_clicked = self._on_encoder_ccw
@@ -167,11 +171,56 @@ class SlintKeypadApp:
         w.watchdog_tick = self._watchdog_tick
 
     def run(self) -> None:
-        self._w.show()
-        self._w.msg_timer_running = True
-        self._w.wd_timer_running = True
-        self._arm_splash_inactivity_timer()
-        slint.run_event_loop()
+        self._tray_quit_requested = False
+
+        while not self._tray_quit_requested:
+            self._w.show()
+            self._w.msg_timer_running = True
+            self._w.wd_timer_running = True
+            self._arm_splash_inactivity_timer()
+            slint.run_event_loop()
+
+            if not HAS_PYSTRAY or self._tray_quit_requested:
+                break
+
+            self._log("Application hidden to system tray")
+            self._create_tray_icon()
+
+    def _create_tray_icon(self) -> None:
+        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        draw.ellipse((4, 4, 60, 60), fill=(31, 157, 85, 255), outline=(0, 0, 0, 255))
+
+        def _on_show(icon, item):
+            icon.stop()
+
+        def _on_quit(icon, item):
+            self._tray_quit_requested = True
+            icon.stop()
+
+        menu = pystray.Menu(
+            pystray.MenuItem("Show", _on_show),
+            pystray.MenuItem("Quit", _on_quit),
+        )
+        icon = pystray.Icon("pico_keypad", img, "Pico Keypad", menu)
+        self._tray_icon = icon
+        icon.run()
+        self._tray_icon = None
+
+        if self._tray_quit_requested:
+            try:
+                if self.client.is_open:
+                    self._on_disconnect()
+                else:
+                    self._cancel_splash_inactivity_timer()
+            except Exception:
+                pass
+
+    def _on_toggle_connection(self) -> None:
+        if self.client.is_open:
+            self._on_disconnect()
+        else:
+            self._on_connect()
 
     def _on_connect(self) -> None:
         try:
@@ -648,12 +697,19 @@ class SlintKeypadApp:
 
     def _update_oled_preview_from_lines(self, lines: list[str]) -> None:
         try:
-            from PIL import Image as PILImage, ImageDraw as PILDraw
+            from PIL import Image as PILImage, ImageDraw as PILDraw, ImageFont
 
             img = PILImage.new("1", (protocol.DISPLAY_WIDTH, protocol.DISPLAY_HEIGHT), 0)
             draw = PILDraw.Draw(img)
+            try:
+                font = ImageFont.truetype("consola.ttf", 8)
+            except Exception:
+                try:
+                    font = ImageFont.truetype("cour.ttf", 8)
+                except Exception:
+                    font = ImageFont.load_default()
             for idx, line in enumerate(lines[:4]):
-                draw.text((0, idx * 8), line[:16], fill=1)
+                draw.text((0, idx * 8), line[:16], fill=1, font=font)
             self._set_oled_preview_image(img)
         except Exception:
             self._clear_oled_preview()
@@ -676,14 +732,15 @@ class SlintKeypadApp:
         try:
             import PIL
 
+            self.preview_count += 1
             scaled = pil_image.resize(
                 (protocol.DISPLAY_WIDTH * SCALE, protocol.DISPLAY_HEIGHT * SCALE),
                 PIL.Image.NEAREST,
             )
             rgba = scaled.convert("RGBA")
-            tmp = os.path.join(tempfile.gettempdir(), "pico_keypad_oled_preview.png")
+            tmp = os.path.join(tempfile.gettempdir(), f"pico_keypad_oled_{self.preview_count % 2}.png")
             rgba.save(tmp)
-            self._w.oled_preview_image = tmp
+            self._w.oled_preview_image = slint.Image.load_from_path(tmp)
         except Exception:
             pass
 
@@ -691,12 +748,13 @@ class SlintKeypadApp:
         try:
             from PIL import Image as PILImage
 
+            self.preview_count += 1
             img = PILImage.new("RGBA", (protocol.DISPLAY_WIDTH * SCALE, protocol.DISPLAY_HEIGHT * SCALE), (0, 0, 0, 255))
-            tmp = os.path.join(tempfile.gettempdir(), "pico_keypad_oled_preview.png")
+            tmp = os.path.join(tempfile.gettempdir(), f"pico_keypad_oled_{self.preview_count % 2}.png")
             img.save(tmp)
-            self._w.oled_preview_image = tmp
+            self._w.oled_preview_image = slint.Image.load_from_path(tmp)
         except Exception:
-            self._w.oled_preview_image = ""
+            pass
 
     def _can_send(self) -> bool:
         if self.client.is_open:
@@ -899,9 +957,9 @@ class SlintKeypadApp:
 
     def _log(self, text: str) -> None:
         current = list(self._w.log_lines)
-        current.append(text)
+        current.insert(0, text)
         if len(current) > 500:
-            current = current[-500:]
+            current = current[:500]
         self._w.log_lines = slint.ListModel(current)
 
     @staticmethod

@@ -5,7 +5,7 @@ from pathlib import Path
 from . import protocol
 
 
-DEFAULT_SPLASH_PATH = Path(__file__).resolve().with_name("splash.bin")
+DEFAULT_SPLASH_PATH = Path(__file__).resolve().parent.parent / "splash.bin"
 
 
 def _validate_buffer(buffer: bytes) -> bytes:

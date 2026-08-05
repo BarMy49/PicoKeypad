@@ -40,9 +40,9 @@ def main() -> None:
             )
     else:
         if __package__ in (None, ""):
-            from app.gui import run
+            from app.gui_tkinter import run
         else:
-            from .gui import run
+            from .gui_tkinter import run
 
     run(
         port=args.port,
