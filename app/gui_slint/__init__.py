@@ -86,6 +86,11 @@ class SlintKeypadApp:
         self._last_ping_time = 0.0
 
         if getattr(sys, "frozen", False):
+            self._app_dir = os.path.join(sys._MEIPASS, "app")
+        else:
+            self._app_dir = os.path.dirname(os.path.dirname(__file__))
+
+        if getattr(sys, "frozen", False):
             slint_dir = os.path.join(sys._MEIPASS, "app", "gui_slint")
         else:
             slint_dir = os.path.dirname(__file__)
@@ -192,9 +197,13 @@ class SlintKeypadApp:
             self._create_tray_icon()
 
     def _create_tray_icon(self) -> None:
-        img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        draw.ellipse((4, 4, 60, 60), fill=(31, 157, 85, 255), outline=(0, 0, 0, 255))
+        icon_path = os.path.join(self._app_dir, "icon.ico")
+        if os.path.exists(icon_path):
+            img = Image.open(icon_path)
+        else:
+            img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            draw.ellipse((4, 4, 60, 60), fill=(31, 157, 85, 255), outline=(0, 0, 0, 255))
 
         def _on_show(icon, item):
             icon.stop()

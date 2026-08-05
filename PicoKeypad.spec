@@ -5,7 +5,7 @@ a = Analysis(
     ['app\\main.py'],
     pathex=[],
     binaries=[],
-    datas=[('app/gui_slint/main_window.slint', 'app/gui_slint'), ('app/bindings.json', 'app'), ('app/display_rules.json', 'app'), ('app/splash.bin', 'app')],
+    datas=[('app/gui_slint/main_window.slint', 'app/gui_slint'), ('app/bindings.json', 'app'), ('app/display_rules.json', 'app'), ('app/splash.bin', 'app'), ('app/icon.ico', 'app'), ('app/icon_win.png', 'app')],
     hiddenimports=['PIL', 'PIL.Image', 'PIL.ImageDraw', 'PIL.ImageFont', 'serial', 'serial.tools.list_ports', 'slint'],
     hookspath=[],
     hooksconfig={},
