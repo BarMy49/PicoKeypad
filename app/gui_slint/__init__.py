@@ -9,6 +9,7 @@ from pathlib import Path
 from tkinter import filedialog
 from typing import Any
 
+import asyncio
 import slint
 from PIL import Image as PILImage, ImageDraw as PILDraw
 
@@ -63,6 +64,7 @@ class SlintKeypadApp:
     ):
         self.client = PicoKeypadClient(port=initial_port)
         self.messages: queue.Queue[dict[str, Any]] = queue.Queue()
+        self.action_queue: queue.Queue[dict[str, Any]] = queue.Queue()
         self.binding_store = BindingStore(bindings_path)
         self.display_store = DisplayRuleStore(display_rules_path)
         self.action_runner = ActionRunner(
@@ -182,6 +184,9 @@ class SlintKeypadApp:
 
     def run(self) -> None:
         self._tray_quit_requested = False
+        self._bg_pump_stop = False
+        bg_thread = threading.Thread(target=self._background_msg_pump, daemon=True)
+        bg_thread.start()
 
         while not self._tray_quit_requested:
             self._w.show()
@@ -195,6 +200,28 @@ class SlintKeypadApp:
 
             self._log("Application hidden to system tray")
             self._create_tray_icon()
+
+        self._bg_pump_stop = True
+
+    def _background_msg_pump(self) -> None:
+        while not self._bg_pump_stop:
+            try:
+                message = self.action_queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
+
+            self._last_rx_time = time.monotonic()
+            self._run_binding_for_message(message, log=False)
+
+    def _asyncio_msg_pump(self) -> None:
+        self._process_messages()
+        loop = asyncio.get_event_loop()
+        loop.call_later(0.05, self._asyncio_msg_pump)
+
+    def _asyncio_watchdog_pump(self) -> None:
+        self._watchdog_tick()
+        loop = asyncio.get_event_loop()
+        loop.call_later(1.0, self._asyncio_watchdog_pump)
 
     def _create_tray_icon(self) -> None:
         icon_path = os.path.join(self._app_dir, "icon.ico")
@@ -237,26 +264,21 @@ class SlintKeypadApp:
             self._on_connect()
 
     def _on_connect(self) -> None:
-        try:
-            self.client.open(self._w.port_text.strip() or None)
-        except Exception as exc:
-            self._log(f"Connection failed: {exc}")
-            return
+        self._w.status_text = "Connecting..."
+        port = self._w.port_text.strip() or None
 
-        self._w.port_text = self.client.port or ""
-        self.stop_reader.clear()
-        self.reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
-        self.reader_thread.start()
-        self._set_connected(True)
-        self._log(f"Connected to {self.client.port}")
-        self._last_rx_time = time.monotonic()
-        self._last_ping_time = 0.0
-        self._arm_splash_inactivity_timer()
+        def worker() -> None:
+            try:
+                self.client.open(port)
+            except Exception as exc:
+                self.messages.put({"type": "connect_failed", "message": str(exc)})
+                return
 
-        try:
-            self.client.ping()
-        except Exception as exc:
-            self._log(f"Ping failed: {exc}")
+            self._last_rx_time = time.monotonic()
+            self._last_ping_time = 0.0
+            self.messages.put({"type": "connection_ok", "port": self.client.port or ""})
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _on_disconnect(self) -> None:
         try:
@@ -286,6 +308,9 @@ class SlintKeypadApp:
                 break
             if message:
                 self.messages.put(message)
+                msg_type = message.get("type")
+                if msg_type in ("key", "encoder"):
+                    self.action_queue.put(message)
 
     def _process_messages(self) -> None:
         while True:
@@ -309,11 +334,9 @@ class SlintKeypadApp:
             self._log(json.dumps(message))
         elif message_type == "key":
             self._handle_key(message)
-            self._run_binding_for_message(message)
             self._run_display_rule_for_message(message)
         elif message_type == "encoder":
             self._handle_encoder(message)
-            self._run_binding_for_message(message)
             self._run_display_rule_for_message(message)
         elif message_type == "ack":
             self._log(f"ACK {message.get('result')}")
@@ -332,6 +355,23 @@ class SlintKeypadApp:
         elif message_type == "connection_error":
             self._log(f"Connection error: {message.get('message')}")
             self._on_disconnect()
+        elif message_type == "connect_failed":
+            self._log(f"Connection failed: {message.get('message')}")
+            self._w.status_text = "Disconnected"
+        elif message_type == "connection_ok":
+            self._w.port_text = message.get("port", "")
+            self._set_connected(True)
+            self._log(f"Connected to {message.get('port')}")
+            self._arm_splash_inactivity_timer()
+            self.stop_reader.clear()
+            self.reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+            self.reader_thread.start()
+            try:
+                self.client.ping()
+            except Exception as exc:
+                self._log(f"Ping failed: {exc}")
+        elif message_type == "ping_failed":
+            self._log(f"Ping failed: {message.get('message')}")
         elif message_type == "encoder_direction_clear":
             self._w.encoder_direction = ""
         elif message_type == "splash_inactivity":
@@ -387,7 +427,10 @@ class SlintKeypadApp:
             10: "key_10_pressed", 11: "key_11_pressed", 12: "key_12_pressed",
         }
         if key in key_props:
-            setattr(self._w, key_props[key], pressed)
+            try:
+                setattr(self._w, key_props[key], pressed)
+            except Exception:
+                pass
 
         self._reset_splash_inactivity_timer()
         self._log(f"KEY {message.get('event')} {key}")
@@ -436,7 +479,7 @@ class SlintKeypadApp:
             self.splash_inactivity_timer.cancel()
             self.splash_inactivity_timer = None
 
-    def _run_binding_for_message(self, message: dict[str, Any]) -> None:
+    def _run_binding_for_message(self, message: dict[str, Any], log: bool = True) -> None:
         event_id = event_id_from_message(message)
         if event_id is None:
             return
@@ -455,8 +498,9 @@ class SlintKeypadApp:
         for _ in range(action_repeats):
             self.action_runner.run(action)
 
-        label = EVENT_LABELS.get(event_id, event_id)
-        self._log(f"ACTION {label}: {action.kind} {self._short_value(action.value)}")
+        if log:
+            label = EVENT_LABELS.get(event_id, event_id)
+            self._log(f"ACTION {label}: {action.kind} {self._short_value(action.value)}")
 
     def _run_display_rule_for_message(self, message: dict[str, Any]) -> None:
         event_id = event_id_from_message(message)
