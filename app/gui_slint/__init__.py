@@ -64,7 +64,7 @@ class SlintKeypadApp:
         start_minimized: bool | None = None,
     ):
         if getattr(sys, "frozen", False):
-            self._app_dir = os.path.join(sys._MEIPASS, "app")
+            self._app_dir = os.path.dirname(sys.executable)
         else:
             self._app_dir = os.path.dirname(os.path.dirname(__file__))
 
@@ -192,8 +192,6 @@ class SlintKeypadApp:
         w.encoder_btn_clicked = self._on_encoder_btn
 
         w.load_splash_preview = self._on_load_splash_preview
-        w.save_current_splash = self._on_save_current_splash
-        w.send_splash_to_device = self._on_send_splash_to_device
 
         w.save_binding = self._on_save_binding
         w.test_binding = self._on_test_binding
@@ -425,41 +423,30 @@ class SlintKeypadApp:
         self._w.splash_status = self._splash_status_text()
 
     def _on_load_splash_preview(self) -> None:
-        buffer = self._engine.load_splash()
-        if buffer is None:
-            self._splash_buffer = None
-            self._update_splash_status()
-            self._log(f"No valid splash file at {self._engine.splash_path()}")
+        if not HAS_FILEDIALOG:
+            self._log("File dialog not available (tkinter missing)")
             return
-        self._splash_buffer = buffer
-        self._preview_buffer = buffer
-        self._update_splash_status()
-        self._update_oled_preview_from_buffer(buffer)
-        self._log(f"Loaded splash preview from {self._engine.splash_path()}")
-
-    def _on_save_current_splash(self) -> None:
-        buffer = self._preview_buffer or self._splash_buffer
-        if buffer is None:
-            self._log("Load an image first")
+        path = filedialog.askopenfilename(
+            filetypes=(
+                ("PNG images", "*.png"),
+                ("All files", "*.*"),
+            )
+        )
+        if not path:
             return
         try:
-            self._engine.save_splash(buffer)
+            pil_img = PILImage.open(path)
+            buffer = self._engine.pil_image_to_oled_buffer(pil_img)
             self._splash_buffer = buffer
+            self._preview_buffer = buffer
+            self._engine.save_splash(buffer)
             self._update_splash_status()
-            self._log(f"Saved splash to {self._engine.splash_path()}")
+            self._update_oled_preview_from_buffer(buffer)
+            if self._engine.is_connected():
+                self._engine.send_splash_to_device()
+            self._log(f"Loaded and saved splash from {path}")
         except Exception as exc:
-            self._log(f"Splash save failed: {exc}")
-
-    def _on_send_splash_to_device(self) -> None:
-        if not self._engine.is_connected():
-            self._log("Not connected to device")
-            return
-        success = self._engine.send_splash_to_device()
-        if success:
-            self._splash_buffer = self._engine.load_splash()
-            if self._splash_buffer:
-                self._update_oled_preview_from_buffer(self._splash_buffer)
-            self._update_splash_status()
+            self._log(f"Failed to load splash image: {exc}")
 
     def _on_binding_event_selected(self, label: str) -> None:
         event_id = LABEL_EVENTS.get(label, label)

@@ -292,8 +292,6 @@ export component MainWindow inherits Window {
     callback encoder-cw-clicked();
     callback encoder-btn-clicked();
     callback load-splash-preview();
-    callback save-current-splash();
-    callback send-splash-to-device();
 
     callback save-binding();
     callback test-binding();
@@ -561,10 +559,6 @@ export component MainWindow inherits Window {
 
                                     Button { text: "Load"; height: 50px; clicked => { root
                                     .load-splash-preview(); } }
-                                    Button { text: "Save"; height: 50px; clicked => { root
-                                    .save-current-splash(); } }
-                                    Button { text: "Send to device"; height: 50px; clicked => { root
-                                    .send-splash-to-device(); } }
                                 }
 
                                 Text {

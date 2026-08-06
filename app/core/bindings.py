@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 
 from .actions import Action
@@ -19,8 +20,14 @@ EVENT_LABELS = dict(EVENTS)
 LABEL_EVENTS = {label: event_id for event_id, label in EVENTS}
 
 
+def _app_dir() -> Path:
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
 def default_bindings_path() -> Path:
-    return Path(__file__).parent.resolve().with_name("bindings.json")
+    return _app_dir() / "bindings.json"
 
 
 def event_id_from_message(message: dict) -> str | None:

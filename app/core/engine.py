@@ -257,7 +257,7 @@ class PicoKeypadEngine:
             self._events.fire("on_log",
                               f"ERROR {message.get('where')}: {message.get('message')}")
         elif message_type == "pong":
-            self._events.fire("on_log", "PONG")
+            pass
         elif message_type == "mode":
             state = message.get("state")
             if state == "secret":

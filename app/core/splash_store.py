@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from . import protocol
 
 
-DEFAULT_SPLASH_PATH = Path(__file__).resolve().parent.parent / "splash.bin"
+def _default_splash_path() -> Path:
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent / "splash.bin"
+    return Path(__file__).resolve().parent.parent / "splash.bin"
+
+
+DEFAULT_SPLASH_PATH = _default_splash_path()
 
 
 def _validate_buffer(buffer: bytes) -> bytes:

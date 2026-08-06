@@ -1,4 +1,5 @@
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,8 +45,14 @@ class DisplayRule:
         return cls(kind=kind, value=str(data.get("value", "")))
 
 
+def _app_dir() -> Path:
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
 def default_display_rules_path() -> Path:
-    return Path(__file__).parent.resolve().with_name("display_rules.json")
+    return _app_dir() / "display_rules.json"
 
 
 class DisplayRuleStore:
