@@ -1,3 +1,4 @@
+import json
 import os
 import queue
 import sys
@@ -60,7 +61,21 @@ class SlintKeypadApp:
         initial_port: str | None = None,
         bindings_path: str | None = None,
         display_rules_path: str | None = None,
+        start_minimized: bool | None = None,
     ):
+        if getattr(sys, "frozen", False):
+            self._app_dir = os.path.join(sys._MEIPASS, "app")
+        else:
+            self._app_dir = os.path.dirname(os.path.dirname(__file__))
+
+        settings = self._load_settings()
+        if initial_port is None:
+            initial_port = settings.get("port")
+        if start_minimized is None:
+            start_minimized = settings.get("start_minimized", False)
+        self._start_minimized = start_minimized
+        self._connect_on_start = settings.get("connect_on_start", True)
+
         self._engine = PicoKeypadEngine(
             initial_port=initial_port,
             bindings_path=bindings_path,
@@ -79,11 +94,6 @@ class SlintKeypadApp:
         self._preview_count = 0
 
         if getattr(sys, "frozen", False):
-            self._app_dir = os.path.join(sys._MEIPASS, "app")
-        else:
-            self._app_dir = os.path.dirname(os.path.dirname(__file__))
-
-        if getattr(sys, "frozen", False):
             slint_dir = os.path.join(sys._MEIPASS, "app", "gui_slint")
         else:
             slint_dir = os.path.dirname(__file__)
@@ -92,11 +102,50 @@ class SlintKeypadApp:
         self._window = comps.MainWindow()
         self._w = self._window
 
+        if initial_port:
+            self._w.port_text = initial_port
+
+        self._w.connect_on_start = self._connect_on_start
+        self._w.start_minimized = self._start_minimized
+
         self._init_properties()
         self._wire_callbacks()
         self._wire_engine_callbacks()
 
         self._refresh_ports()
+
+        if self._connect_on_start and initial_port:
+            self._w.status_text = "Connecting..."
+            self._engine.connect(initial_port)
+
+    def _settings_path(self) -> str:
+        return os.path.join(self._app_dir, "settings.json")
+
+    def _load_settings(self) -> dict:
+        path = self._settings_path()
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_settings(self, updates: dict) -> None:
+        settings = self._load_settings()
+        settings.update(updates)
+        path = self._settings_path()
+        try:
+            with open(path, "w") as f:
+                json.dump(settings, f, indent=2)
+        except Exception:
+            pass
+
+    def _on_settings_changed(self) -> None:
+        self._connect_on_start = self._w.connect_on_start
+        self._start_minimized = self._w.start_minimized
+        self._save_settings({
+            "connect_on_start": self._connect_on_start,
+            "start_minimized": self._start_minimized,
+        })
 
     def _init_properties(self) -> None:
         w = self._w
@@ -166,6 +215,7 @@ class SlintKeypadApp:
 
         w.poll_messages = self._poll_messages
         w.watchdog_tick = lambda: None
+        w.settings_changed = self._on_settings_changed
 
     def _wire_engine_callbacks(self) -> None:
         events = self._engine.events
@@ -236,7 +286,10 @@ class SlintKeypadApp:
         self._w.status_text = text
         self._w.connected = connected
         if connected:
-            self._w.port_text = self._engine.connected_port()
+            port = self._engine.connected_port()
+            self._w.port_text = port
+            if self._connect_on_start:
+                self._save_settings({"port": port})
 
     def _do_log(self, text: str) -> None:
         current = list(self._w.log_lines)
@@ -254,8 +307,16 @@ class SlintKeypadApp:
 
     def run(self) -> None:
         self._tray_quit_requested = False
+        first = True
 
         while not self._tray_quit_requested:
+            if first and self._start_minimized and HAS_PYSTRAY:
+                self._log("Application started minimized to system tray")
+                self._create_tray_icon()
+                first = False
+                continue
+
+            first = False
             self._w.show()
             self._w.msg_timer_running = True
             self._w.wd_timer_running = False
@@ -641,10 +702,12 @@ def run(
     port: str | None = None,
     bindings_path: str | None = None,
     display_rules_path: str | None = None,
+    start_minimized: bool | None = None,
 ) -> None:
     app = SlintKeypadApp(
         initial_port=port,
         bindings_path=bindings_path,
         display_rules_path=display_rules_path,
+        start_minimized=start_minimized,
     )
     app.run()

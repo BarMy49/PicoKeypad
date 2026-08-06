@@ -10,6 +10,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Pico keypad desktop application")
     parser.add_argument("--port", help="Serial port, for example COM5")
     parser.add_argument(
+        "-m", "--minimized",
+        action="store_true",
+        help="Start minimized to system tray",
+    )
+    parser.add_argument(
         "--bindings",
         help="Path to the bindings JSON file. Defaults to app/bindings.json",
     )
@@ -35,6 +40,7 @@ def main() -> None:
         port=args.port,
         bindings_path=args.bindings,
         display_rules_path=args.display_rules,
+        start_minimized=args.minimized or None,
     )
 
 

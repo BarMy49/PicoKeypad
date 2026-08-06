@@ -280,6 +280,9 @@ export component MainWindow inherits Window {
     in-out property <bool> bindings-list-collapsed: false;
     in-out property <bool> log-section-collapsed: false;
 
+    in-out property <bool> connect-on-start: true;
+    in-out property <bool> start-minimized: false;
+
     callback connect-clicked();
     callback disconnect-clicked();
     callback toggle-connection();
@@ -312,6 +315,8 @@ export component MainWindow inherits Window {
 
     callback poll-messages();
     callback watchdog-tick();
+
+    callback settings-changed();
 
     in-out property <bool> msg-timer-running: false;
     in-out property <bool> wd-timer-running: false;
@@ -371,6 +376,30 @@ export component MainWindow inherits Window {
             Button {
                 text: root.connected ? "Disconnect" : "Connect";
                 clicked => { root.toggle-connection(); }
+            }
+
+            Rectangle {
+                background: #1a202c;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: #2d3748;
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    padding: 6px;
+                    alignment: center;
+
+                    CheckBox {
+                        text: "Connect on start";
+                        checked <=> root.connect-on-start;
+                        toggled => { root.settings-changed(); }
+                    }
+                    CheckBox {
+                        text: "Start minimized";
+                        checked <=> root.start-minimized;
+                        toggled => { root.settings-changed(); }
+                    }
+                }
             }
 
             Rectangle {
