@@ -2,7 +2,6 @@ import unittest
 
 from app.core.actions import (
     ACTION_DISABLED,
-    ACTION_DISPLAY_TEXT,
     ACTION_FUNCTION,
     ACTION_HOTKEY,
     ACTION_MACRO,
@@ -76,7 +75,6 @@ class ActionTypesTests(unittest.TestCase):
         self.assertIn(ACTION_TEXT, ACTION_TYPES)
         self.assertIn(ACTION_FUNCTION, ACTION_TYPES)
         self.assertIn(ACTION_MACRO, ACTION_TYPES)
-        self.assertIn(ACTION_DISPLAY_TEXT, ACTION_TYPES)
 
     def test_action_types_length(self):
         self.assertEqual(len(ACTION_TYPES), 6)
@@ -217,13 +215,6 @@ class ActionRunnerTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
         self.assertEqual(self.displays, [])
 
-    def test_display_text_action(self):
-        import time
-        a = Action(kind=ACTION_DISPLAY_TEXT, value="hello|world")
-        self.runner.run(a)
-        time.sleep(0.2)
-        self.assertEqual(len(self.displays), 1)
-        self.assertEqual(self.displays[0], ["hello", "world"])
 
     def test_macro_display_command(self):
         import time
@@ -253,13 +244,6 @@ class ActionRunnerTests(unittest.TestCase):
         time.sleep(0.2)
         self.assertEqual(len(self.displays), 1)
 
-    def test_run_without_display_handler_raises_in_thread(self):
-        runner = ActionRunner(on_error=lambda msg: self.errors.append(msg))
-        a = Action(kind=ACTION_DISPLAY_TEXT, value="test")
-        runner.run(a)
-        import time
-        time.sleep(0.2)
-        self.assertEqual(len(self.errors), 1)
 
     def test_macro_unknown_command_raises(self):
         import time

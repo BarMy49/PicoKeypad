@@ -6,7 +6,6 @@ from typing import Any, Callable
 
 from . import protocol
 from .actions import (
-    ACTION_DISPLAY_TEXT,
     ACTION_FUNCTION,
     ACTION_HOTKEY,
     ACTION_MACRO,
@@ -447,7 +446,7 @@ class PicoKeypadEngine:
 
         self._apply_volume_indicator(action, repeats)
 
-        action_repeats = 1 if action.kind == ACTION_DISPLAY_TEXT else repeats
+        action_repeats = 1
         for _ in range(action_repeats):
             self.action_runner.run(action)
 

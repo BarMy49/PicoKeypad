@@ -10,7 +10,6 @@ ACTION_HOTKEY = "hotkey"
 ACTION_TEXT = "text"
 ACTION_FUNCTION = "function"
 ACTION_MACRO = "macro"
-ACTION_DISPLAY_TEXT = "display_text"
 
 ACTION_TYPES = (
     ACTION_DISABLED,
@@ -18,7 +17,6 @@ ACTION_TYPES = (
     ACTION_TEXT,
     ACTION_FUNCTION,
     ACTION_MACRO,
-    ACTION_DISPLAY_TEXT,
 )
 
 FUNCTIONS = {
@@ -195,8 +193,6 @@ class ActionRunner:
             self.keyboard.press_key(action.value)
         elif action.kind == ACTION_MACRO:
             self._run_macro(action.value)
-        elif action.kind == ACTION_DISPLAY_TEXT:
-            self._emit_display(action.value)
         else:
             raise ActionError("Unsupported action kind: {}".format(action.kind))
 

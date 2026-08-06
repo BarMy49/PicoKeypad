@@ -27,7 +27,6 @@ except Exception:
 
 from ..core import protocol
 from ..core.actions import (
-    ACTION_DISPLAY_TEXT,
     ACTION_FUNCTION,
     ACTION_HOTKEY,
     ACTION_MACRO,
@@ -465,8 +464,6 @@ class SlintKeypadApp:
             self._w.binding_value = (
                 "hotkey: ctrl+c\nsleep: 100\nhotkey: ctrl+v\ndisplay: COPIED | TO CLIPBOARD"
             )
-        elif kind == ACTION_DISPLAY_TEXT and not current:
-            self._w.binding_value = "Button action\n{volume}% {mute}"
 
     def _on_binding_item_selected(self, idx: int) -> None:
         bindings = sorted(self._engine.get_all_bindings().items())
@@ -493,6 +490,10 @@ class SlintKeypadApp:
 
         if kind == ACTION_MACRO:
             self._w.binding_value = self._w.binding_value + key_name
+            return
+
+        self._w.binding_kind = ACTION_HOTKEY
+        self._w.binding_value = key_name
 
     def _on_save_binding(self) -> None:
         label = self._w.binding_event

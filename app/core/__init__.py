@@ -1,5 +1,4 @@
 from .actions import (
-    ACTION_DISPLAY_TEXT,
     ACTION_FUNCTION,
     ACTION_HOTKEY,
     ACTION_MACRO,

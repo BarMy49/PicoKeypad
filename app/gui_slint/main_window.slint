@@ -1,4 +1,15 @@
-import { Button, CheckBox, ComboBox, LineEdit, TextEdit, ScrollView, TabWidget, VerticalBox, HorizontalBox, GroupBox } from "std-widgets.slint";
+import {
+    Button,
+    CheckBox,
+    ComboBox,
+    LineEdit,
+    TextEdit,
+    ScrollView,
+    TabWidget,
+    VerticalBox,
+    HorizontalBox,
+    GroupBox,
+} from "std-widgets.slint";
 
 component IconButton {
     in property <string> text;
@@ -51,7 +62,10 @@ component KeyButton {
         border-color: #4a5568;
         background: root.pressed ? #1f9d55 : #2d3748;
 
-        animate background { duration: 150ms; easing: ease; }
+        animate background {
+            duration: 150ms;
+            easing: ease;
+        }
 
         Text {
             text: root.key-num;
@@ -95,7 +109,10 @@ component EncoderDisplay {
                 min-width: 44px;
                 vertical-stretch: 1;
 
-                animate background { duration: 150ms; easing: ease; }
+                animate background {
+                    duration: 150ms;
+                    easing: ease;
+                }
 
                 Text {
                     text: "\u{25c0}";
@@ -105,6 +122,7 @@ component EncoderDisplay {
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
+
                 TouchArea {
                     clicked => { root.ccw-clicked(); }
                 }
@@ -133,6 +151,7 @@ component EncoderDisplay {
                     animate background { duration: 100ms; }
                     animate border-color { duration: 100ms; }
                 }
+
                 TouchArea {
                     clicked => { root.btn-clicked(); }
                 }
@@ -144,7 +163,10 @@ component EncoderDisplay {
                 min-width: 44px;
                 vertical-stretch: 1;
 
-                animate background { duration: 150ms; easing: ease; }
+                animate background {
+                    duration: 150ms;
+                    easing: ease;
+                }
 
                 Text {
                     text: "\u{25b6}";
@@ -154,6 +176,7 @@ component EncoderDisplay {
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
+
                 TouchArea {
                     clicked => { root.cw-clicked(); }
                 }
@@ -350,13 +373,13 @@ export component MainWindow inherits Window {
                     padding: 6px;
                     alignment: center;
 
-                Text {
-                    text: "Port";
-                    color: #718096;
-                    font-size: 13px;
-                    font-weight: 600;
-                    vertical-alignment: center;
-                }
+                    Text {
+                        text: "Port";
+                        color: #718096;
+                        font-size: 13px;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                    }
 
                     ComboBox {
                         min-width: 200px;
@@ -392,6 +415,7 @@ export component MainWindow inherits Window {
                         checked <=> root.connect-on-start;
                         toggled => { root.settings-changed(); }
                     }
+
                     CheckBox {
                         text: "Start minimized";
                         checked <=> root.start-minimized;
@@ -459,30 +483,87 @@ export component MainWindow inherits Window {
                                 alignment: center;
                                 spacing: 6px;
 
-                                key-1 := KeyButton { key-num: 1; pressed: root.key-1-pressed; clicked => { root.key-clicked(1); } }
-                                key-2 := KeyButton { key-num: 2; pressed: root.key-2-pressed; clicked => { root.key-clicked(2); } }
-                                key-3 := KeyButton { key-num: 3; pressed: root.key-3-pressed; clicked => { root.key-clicked(3); } }
-                                key-4 := KeyButton { key-num: 4; pressed: root.key-4-pressed; clicked => { root.key-clicked(4); } }
+                                key-1 := KeyButton {
+                                    key-num: 1;
+                                    pressed: root.key-1-pressed;
+                                    clicked => { root.key-clicked(1); }
+                                }
+
+                                key-2 := KeyButton {
+                                    key-num: 2;
+                                    pressed: root.key-2-pressed;
+                                    clicked => { root.key-clicked(2); }
+                                }
+
+                                key-3 := KeyButton {
+                                    key-num: 3;
+                                    pressed: root.key-3-pressed;
+                                    clicked => { root.key-clicked(3); }
+                                }
+
+                                key-4 := KeyButton {
+                                    key-num: 4;
+                                    pressed: root.key-4-pressed;
+                                    clicked => { root.key-clicked(4); }
+                                }
                             }
 
                             HorizontalLayout {
                                 alignment: center;
                                 spacing: 6px;
 
-                                key-5 := KeyButton { key-num: 5; pressed: root.key-5-pressed; clicked => { root.key-clicked(5); } }
-                                key-6 := KeyButton { key-num: 6; pressed: root.key-6-pressed; clicked => { root.key-clicked(6); } }
-                                key-7 := KeyButton { key-num: 7; pressed: root.key-7-pressed; clicked => { root.key-clicked(7); } }
-                                key-8 := KeyButton { key-num: 8; pressed: root.key-8-pressed; clicked => { root.key-clicked(8); } }
+                                key-5 := KeyButton {
+                                    key-num: 5;
+                                    pressed: root.key-5-pressed;
+                                    clicked => { root.key-clicked(5); }
+                                }
+
+                                key-6 := KeyButton {
+                                    key-num: 6;
+                                    pressed: root.key-6-pressed;
+                                    clicked => { root.key-clicked(6); }
+                                }
+
+                                key-7 := KeyButton {
+                                    key-num: 7;
+                                    pressed: root.key-7-pressed;
+                                    clicked => { root.key-clicked(7); }
+                                }
+
+                                key-8 := KeyButton {
+                                    key-num: 8;
+                                    pressed: root.key-8-pressed;
+                                    clicked => { root.key-clicked(8); }
+                                }
                             }
 
                             HorizontalLayout {
                                 alignment: center;
                                 spacing: 6px;
 
-                                key-9 := KeyButton { key-num: 9; pressed: root.key-9-pressed; clicked => { root.key-clicked(9); } }
-                                key-10 := KeyButton { key-num: 10; pressed: root.key-10-pressed; clicked => { root.key-clicked(10); } }
-                                key-11 := KeyButton { key-num: 11; pressed: root.key-11-pressed; clicked => { root.key-clicked(11); } }
-                                key-12 := KeyButton { key-num: 12; pressed: root.key-12-pressed; clicked => { root.key-clicked(12); } }
+                                key-9 := KeyButton {
+                                    key-num: 9;
+                                    pressed: root.key-9-pressed;
+                                    clicked => { root.key-clicked(9); }
+                                }
+
+                                key-10 := KeyButton {
+                                    key-num: 10;
+                                    pressed: root.key-10-pressed;
+                                    clicked => { root.key-clicked(10); }
+                                }
+
+                                key-11 := KeyButton {
+                                    key-num: 11;
+                                    pressed: root.key-11-pressed;
+                                    clicked => { root.key-clicked(11); }
+                                }
+
+                                key-12 := KeyButton {
+                                    key-num: 12;
+                                    pressed: root.key-12-pressed;
+                                    clicked => { root.key-clicked(12); }
+                                }
                             }
                         }
 
@@ -544,21 +625,25 @@ export component MainWindow inherits Window {
                             padding: 10px;
                             vertical-stretch: 1;
 
-
                             CollapseHeader {
                                 title: "Splash";
                                 collapsed <=> root.splash-section-collapsed;
                             }
 
-                            if !root.splash-section-collapsed : VerticalBox {
+                            if !root.splash-section-collapsed: VerticalBox {
                                 spacing: 6px;
                                 vertical-stretch: 0;
 
                                 HorizontalLayout {
                                     spacing: 8px;
 
-                                    Button { text: "Load"; height: 50px; clicked => { root
-                                    .load-splash-preview(); } }
+                                    Button {
+                                        text: "Load";
+                                        height: 50px;
+                                        clicked => {
+                                            root.load-splash-preview();
+                                        }
+                                    }
                                 }
 
                                 Text {
@@ -575,7 +660,7 @@ export component MainWindow inherits Window {
                                 collapsed <=> root.display-rules-section-collapsed;
                             }
 
-                            if !root.display-rules-section-collapsed : VerticalBox {
+                            if !root.display-rules-section-collapsed: VerticalBox {
                                 spacing: 6px;
                                 vertical-stretch: 0;
 
@@ -585,9 +670,13 @@ export component MainWindow inherits Window {
                                     VerticalBox {
                                         min-width: 200px;
 
-                                        SectionLabel { label: "Input"; height: 30px; }
+                                        SectionLabel {
+                                            label: "Input";
+                                            height: 30px;
+                                        }
+
                                         ComboBox {
-                                        height: 30px;
+                                            height: 30px;
                                             model: root.display-events;
                                             current-value <=> root.display-event;
                                             selected(value) => {
@@ -599,9 +688,13 @@ export component MainWindow inherits Window {
                                     VerticalBox {
                                         min-width: 140px;
 
-                                        SectionLabel { label: "Content"; height: 30px; }
+                                        SectionLabel {
+                                            label: "Content";
+                                            height: 30px;
+                                        }
+
                                         ComboBox {
-                                        height: 30px;
+                                            height: 30px;
                                             model: root.display-kinds;
                                             current-value <=> root.display-kind;
                                             selected(value) => {
@@ -611,7 +704,11 @@ export component MainWindow inherits Window {
                                     }
                                 }
 
-                                SectionLabel { label: "Text or image path"; height: 30px; }
+                                SectionLabel {
+                                    label: "Text or image path";
+                                    height: 30px;
+                                }
+
                                 TextEdit {
                                     text <=> root.display-value;
                                     min-height: 60px;
@@ -623,14 +720,37 @@ export component MainWindow inherits Window {
                                 HorizontalLayout {
                                     spacing: 6px;
 
-                                    Button { text: "Save"; height: 30px; clicked => { root.save-display-rule();
-                                     } }
-                                    Button { text: "Test"; height: 30px; clicked => { root.test-display-rule
-                                    (); } }
-                                    Button { text: "Browse..."; height: 30px; clicked => { root
-                                    .browse-display-image(); } }
-                                    Button { text: "Clear"; height: 30px; clicked => { root.clear-display-rule
-                                    (); } }
+                                    Button {
+                                        text: "Save";
+                                        height: 30px;
+                                        clicked => {
+                                            root.save-display-rule();
+                                        }
+                                    }
+
+                                    Button {
+                                        text: "Test";
+                                        height: 30px;
+                                        clicked => {
+                                            root.test-display-rule();
+                                        }
+                                    }
+
+                                    Button {
+                                        text: "Browse...";
+                                        height: 30px;
+                                        clicked => {
+                                            root.browse-display-image();
+                                        }
+                                    }
+
+                                    Button {
+                                        text: "Clear";
+                                        height: 30px;
+                                        clicked => {
+                                            root.clear-display-rule();
+                                        }
+                                    }
                                 }
                             }
 
@@ -639,7 +759,7 @@ export component MainWindow inherits Window {
                                 collapsed <=> root.display-rules-list-collapsed;
                             }
 
-                            if !root.display-rules-list-collapsed : Rectangle {
+                            if !root.display-rules-list-collapsed: Rectangle {
                                 min-height: 100px;
                                 vertical-stretch: 1;
 
@@ -693,7 +813,7 @@ export component MainWindow inherits Window {
                                 collapsed <=> root.binding-editor-collapsed;
                             }
 
-                            if !root.binding-editor-collapsed : VerticalBox {
+                            if !root.binding-editor-collapsed: VerticalBox {
                                 spacing: 6px;
                                 vertical-stretch: 0;
 
@@ -703,9 +823,13 @@ export component MainWindow inherits Window {
                                     VerticalBox {
                                         min-width: 200px;
 
-                                        SectionLabel { label: "Input";height: 30px; }
+                                        SectionLabel {
+                                            label: "Input";
+                                            height: 30px;
+                                        }
+
                                         ComboBox {
-                                        height: 30px;
+                                            height: 30px;
                                             model: root.binding-events;
                                             current-value <=> root.binding-event;
                                             selected(value) => {
@@ -717,7 +841,10 @@ export component MainWindow inherits Window {
                                     VerticalBox {
                                         min-width: 140px;
 
-                                        SectionLabel { label: "Action"; }
+                                        SectionLabel {
+                                            label: "Action";
+                                        }
+
                                         ComboBox {
                                             model: root.binding-kinds;
                                             current-value <=> root.binding-kind;
@@ -735,21 +862,32 @@ export component MainWindow inherits Window {
                                     VerticalBox {
                                         min-width: 200px;
 
-                                        SectionLabel { label: "Keys"; }
-                                        ComboBox {
-                                            model: root.available-keys;
-                                            current-value <=> root.selected-key;
+                                        SectionLabel {
+                                            label: "Keys";
                                         }
-                                    }
 
-                                    Button {
-                                        text: "Insert";
-                                        clicked => { root.insert-key(); }
-                                        vertical-stretch: 0;
+                                        HorizontalBox {
+                                            ComboBox {
+                                                model: root.available-keys;
+                                                current-value <=> root.selected-key;
+                                                selected(value) => {
+                                                    root.selected-key = value;
+                                                }
+                                            }
+
+                                            Button {
+                                                text: "Insert";
+                                                clicked => { root.insert-key(); }
+                                                vertical-stretch: 0;
+                                            }
+                                        }
                                     }
                                 }
 
-                                SectionLabel { label: "Value / macro"; }
+                                SectionLabel {
+                                    label: "Value / macro";
+                                }
+
                                 TextEdit {
                                     text <=> root.binding-value;
                                     min-height: 55px;
@@ -760,9 +898,20 @@ export component MainWindow inherits Window {
                                 HorizontalLayout {
                                     spacing: 6px;
 
-                                    Button { text: "Save"; clicked => { root.save-binding(); } }
-                                    Button { text: "Test"; clicked => { root.test-binding(); } }
-                                    Button { text: "Clear"; clicked => { root.clear-binding(); } }
+                                    Button {
+                                        text: "Save";
+                                        clicked => { root.save-binding(); }
+                                    }
+
+                                    Button {
+                                        text: "Test";
+                                        clicked => { root.test-binding(); }
+                                    }
+
+                                    Button {
+                                        text: "Clear";
+                                        clicked => { root.clear-binding(); }
+                                    }
                                 }
                             }
 
@@ -771,7 +920,7 @@ export component MainWindow inherits Window {
                                 collapsed <=> root.bindings-list-collapsed;
                             }
 
-                            if !root.bindings-list-collapsed : Rectangle {
+                            if !root.bindings-list-collapsed: Rectangle {
                                 min-height: 140px;
                                 vertical-stretch: 1;
 
