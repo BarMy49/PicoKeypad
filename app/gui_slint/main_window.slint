@@ -221,7 +221,7 @@ export component MainWindow inherits Window {
     preferred-width: 1020px;
     preferred-height: 720px;
     min-width: 820px;
-    min-height: 500px;
+    min-height: 750px;
 
     background: #171923;
 
@@ -476,7 +476,7 @@ export component MainWindow inherits Window {
                 }
 
                 ScrollView {
-                    min-height: root.log-section-collapsed ? 0px : 100px;
+                    min-height: root.log-section-collapsed ? 0px : 35px;
                     vertical-stretch: root.log-section-collapsed ? 0 : 1;
                     visible: !root.log-section-collapsed;
 
@@ -508,6 +508,7 @@ export component MainWindow inherits Window {
                 background: #1a202c;
 
                 tabs := TabWidget {
+                    vertical-stretch: 1;
                     Tab {
                         title: "Display";
 
@@ -524,6 +525,7 @@ export component MainWindow inherits Window {
 
                                 if !root.splash-section-collapsed : VerticalBox {
                                     spacing: 6px;
+                                    vertical-stretch: 0;
 
                                     HorizontalLayout {
                                         spacing: 8px;
@@ -552,6 +554,7 @@ export component MainWindow inherits Window {
 
                                 if !root.display-rules-section-collapsed : VerticalBox {
                                     spacing: 6px;
+                                    vertical-stretch: 0;
 
                                     HorizontalLayout {
                                         spacing: 8px;
@@ -666,6 +669,7 @@ export component MainWindow inherits Window {
 
                                 if !root.binding-editor-collapsed : VerticalBox {
                                     spacing: 6px;
+                                    vertical-stretch: 0;
 
                                     HorizontalLayout {
                                         spacing: 8px;
