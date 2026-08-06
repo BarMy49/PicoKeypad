@@ -81,6 +81,7 @@ class SlintKeypadApp:
             bindings_path=bindings_path,
             display_rules_path=display_rules_path,
         )
+        self._engine.set_auto_reconnect(self._connect_on_start)
         self._msg_queue: queue.Queue[Any] = queue.Queue()
         self._tray_icon = None
         self._tray_quit_requested = False
@@ -146,6 +147,7 @@ class SlintKeypadApp:
             "connect_on_start": self._connect_on_start,
             "start_minimized": self._start_minimized,
         })
+        self._engine.set_auto_reconnect(self._connect_on_start)
 
     def _init_properties(self) -> None:
         w = self._w

@@ -84,6 +84,9 @@ class PicoKeypadEngine:
         self._dev_busy = False
         self._ready_status: str | None = None
         self._splash_timer: threading.Timer | None = None
+        self._reconnect_timer: threading.Timer | None = None
+        self._reconnect_port: str | None = None
+        self._auto_reconnect = False
 
         self._start_background_pump()
 
@@ -107,11 +110,15 @@ class PicoKeypadEngine:
         if self.client.is_open:
             self.disconnect()
 
+        self._stop_reconnect()
+        self._reconnect_port = port
+
         def worker() -> None:
             try:
                 self.client.open(port)
             except Exception as exc:
                 self._events.fire("on_log", f"Connection failed: {exc}")
+                self._start_reconnect()
                 return
 
             self._last_rx_time = time.monotonic()
@@ -134,6 +141,7 @@ class PicoKeypadEngine:
         threading.Thread(target=worker, daemon=True).start()
 
     def disconnect(self) -> None:
+        self._stop_reconnect()
         self._cancel_splash_timer()
         try:
             if self.client.is_open:
@@ -222,6 +230,39 @@ class PicoKeypadEngine:
         self._dev_busy = False
         self._events.fire("on_device_busy", False)
         self._events.fire("on_status", "Disconnected", False)
+        self._start_reconnect()
+
+    def set_auto_reconnect(self, enabled: bool) -> None:
+        self._auto_reconnect = enabled
+        if enabled and not self.client.is_open and self._reconnect_port:
+            self._start_reconnect()
+        else:
+            self._stop_reconnect()
+
+    def _start_reconnect(self) -> None:
+        if not self._auto_reconnect:
+            return
+        if self._reconnect_timer is not None:
+            return
+        if not self._reconnect_port:
+            return
+        self._reconnect_timer = threading.Timer(5.0, self._reconnect_tick)
+        self._reconnect_timer.daemon = True
+        self._reconnect_timer.start()
+
+    def _stop_reconnect(self) -> None:
+        if self._reconnect_timer is not None:
+            self._reconnect_timer.cancel()
+            self._reconnect_timer = None
+
+    def _reconnect_tick(self) -> None:
+        self._reconnect_timer = None
+        if self.client.is_open:
+            return
+        if not self._auto_reconnect:
+            return
+        self._events.fire("on_log", f"Retry connecting to {self._reconnect_port}...")
+        self.connect(self._reconnect_port)
 
     def _handle_message(self, message: dict[str, Any]) -> None:
         message_type = message.get("type")
