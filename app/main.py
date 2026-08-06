@@ -10,12 +10,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Pico keypad desktop application")
     parser.add_argument("--port", help="Serial port, for example COM5")
     parser.add_argument(
-        "--gui",
-        choices=("tkinter", "slint"),
-        default="slint",
-        help="GUI toolkit to use (default: slint)",
-    )
-    parser.add_argument(
         "--bindings",
         help="Path to the bindings JSON file. Defaults to app/bindings.json",
     )
@@ -25,24 +19,17 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.gui == "slint":
-        try:
-            if __package__ in (None, ""):
-                from app.gui_slint import run
-            else:
-                from .gui_slint import run
-        except ImportError as exc:
-            sys.exit(
-                f"Slint GUI selected but slint package is not installed.\n"
-                f"Install it with: pip install slint\n"
-                f"Or use the Tkinter GUI with: --gui tkinter\n"
-                f"Error: {exc}"
-            )
-    else:
+    try:
         if __package__ in (None, ""):
-            from app.gui_tkinter import run
+            from app.gui_slint import run
         else:
-            from .gui_tkinter import run
+            from .gui_slint import run
+    except ImportError as exc:
+        sys.exit(
+            f"Slint GUI could not be loaded.\n"
+            f"Install slint with: pip install slint\n"
+            f"Error: {exc}"
+        )
 
     run(
         port=args.port,

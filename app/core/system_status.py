@@ -380,7 +380,12 @@ async def _get_windows_media_status_once() -> MediaStatus:
     properties = await session.try_get_media_properties_async()
     playback_info = session.get_playback_info()
     raw_playback_status = playback_info.playback_status
-    playback_status = str(getattr(raw_playback_status, "value", raw_playback_status))
+    if hasattr(raw_playback_status, "name"):
+        playback_status = str(raw_playback_status.name)
+    elif hasattr(raw_playback_status, "value"):
+        playback_status = str(raw_playback_status.value)
+    else:
+        playback_status = str(raw_playback_status)
 
     return MediaStatus(
         title=str(getattr(properties, "title", "") or ""),

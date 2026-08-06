@@ -22,6 +22,7 @@ from .display_rules import (
     DisplayRule,
     DisplayRuleStore,
 )
+from .engine import PicoKeypadEngine
 from .protocol import (
     DISPLAY_BUFFER_SIZE,
     DISPLAY_HEIGHT,

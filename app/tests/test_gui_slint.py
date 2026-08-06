@@ -75,11 +75,11 @@ class SlintKeypadAppInitTests(unittest.TestCase):
             )
 
             self.assertIsNotNone(app._w)
-            self.assertIsNotNone(app.client)
-            self.assertIsNotNone(app.binding_store)
-            self.assertIsNotNone(app.display_store)
-            self.assertIsNotNone(app.action_runner)
-            self.assertFalse(app._dev_busy)
+            self.assertIsNotNone(app._engine)
+            self.assertIsNotNone(app._engine.client)
+            self.assertIsNotNone(app._engine.binding_store)
+            self.assertIsNotNone(app._engine.display_store)
+            self.assertIsNotNone(app._engine.action_runner)
 
 
 if __name__ == "__main__":
