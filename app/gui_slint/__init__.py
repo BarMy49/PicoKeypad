@@ -142,9 +142,6 @@ class SlintKeypadApp:
         w.encoder_cw_clicked = self._on_encoder_cw
         w.encoder_btn_clicked = self._on_encoder_btn
 
-        w.send_text = self._on_send_text
-        w.load_image = self._on_load_image
-        w.clear_display = self._on_clear_display
         w.load_splash_preview = self._on_load_splash_preview
         w.save_current_splash = self._on_save_current_splash
         w.send_splash_to_device = self._on_send_splash_to_device
@@ -354,46 +351,6 @@ class SlintKeypadApp:
         if not self._w.port_text and values:
             detected = PicoKeypadEngine.autodetect_port()
             self._w.port_text = detected or values[0]
-
-    def _on_send_text(self) -> None:
-        lines = self._w.text_input.splitlines() or [""]
-        if not self._engine.is_connected():
-            self._update_oled_preview_from_lines(lines)
-            return
-        self._engine.send_text_to_display(lines)
-
-    def _on_clear_display(self) -> None:
-        if not self._engine.is_connected():
-            self._clear_oled_preview()
-            return
-        self._engine.clear_display()
-
-    def _on_load_image(self) -> None:
-        if not HAS_FILEDIALOG:
-            self._log("File dialog not available (tkinter missing)")
-            return
-
-        path = filedialog.askopenfilename(
-            filetypes=(
-                ("Images", "*.png *.gif *.ppm *.pgm"),
-                ("All files", "*.*"),
-            )
-        )
-        if not path:
-            return
-        self._load_and_send_image_file(path)
-
-    def _load_and_send_image_file(self, path: str) -> None:
-        try:
-            pil_img = PILImage.open(path)
-            buffer = self._engine.pil_image_to_oled_buffer(pil_img, invert=self._w.image_invert)
-            self._preview_buffer = buffer
-            if self._engine.is_connected():
-                self._engine.client.send_image(buffer)
-            self._update_oled_preview_from_buffer(buffer)
-            self._log(f"Image sent: {path}")
-        except Exception as exc:
-            self._log(f"Image failed: {exc}")
 
     def _splash_status_text(self) -> str:
         path = self._engine.splash_path()

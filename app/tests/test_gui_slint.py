@@ -36,7 +36,6 @@ class SlintWindowCompileTests(unittest.TestCase):
         self.assertTrue(hasattr(w, "binding_kind"))
         self.assertTrue(hasattr(w, "display_event"))
         self.assertTrue(hasattr(w, "display_kind"))
-        self.assertTrue(hasattr(w, "image_invert"))
         self.assertTrue(hasattr(w, "msg_timer_running"))
         self.assertTrue(hasattr(w, "wd_timer_running"))
 
@@ -52,8 +51,6 @@ class SlintWindowCompileTests(unittest.TestCase):
         self.assertTrue(callable(getattr(w, "disconnect_clicked", None)))
         self.assertTrue(callable(getattr(w, "refresh_ports", None)))
         self.assertTrue(callable(getattr(w, "key_clicked", None)))
-        self.assertTrue(callable(getattr(w, "send_text", None)))
-        self.assertTrue(callable(getattr(w, "load_image", None)))
         self.assertTrue(callable(getattr(w, "save_binding", None)))
         self.assertTrue(callable(getattr(w, "save_display_rule", None)))
         self.assertTrue(callable(getattr(w, "poll_messages", None)))

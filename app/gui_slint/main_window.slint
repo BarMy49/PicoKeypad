@@ -40,9 +40,9 @@ component KeyButton {
     in-out property <bool> pressed;
     callback clicked();
 
-    min-width: 56px;
-    min-height: 42px;
-    horizontal-stretch: 1;
+    width: 90px;
+    height: 90px;
+    horizontal-stretch: 0;
     vertical-stretch: 0;
 
     rect := Rectangle {
@@ -76,6 +76,7 @@ component EncoderDisplay {
     callback btn-clicked();
 
     min-height: 90px;
+    max-height: 90px;
     horizontal-stretch: 0;
 
     Rectangle {
@@ -175,6 +176,45 @@ component SectionLabel {
     }
 }
 
+component CollapseHeader {
+    in property <string> title;
+    in-out property <bool> collapsed;
+
+    min-height: 32px;
+    max-height: 32px;
+    horizontal-stretch: 1;
+    vertical-stretch: 0;
+
+    Rectangle {
+        background: #2d3748;
+        border-radius: 6px;
+
+        TouchArea {
+            clicked => { root.collapsed = !root.collapsed; }
+        }
+
+        HorizontalLayout {
+            padding: 6px;
+
+            arrow := Text {
+                text: root.collapsed ? "▸" : "▾";
+                color: #718096;
+                font-size: 11px;
+                font-family: "Segoe UI Symbol";
+                vertical-alignment: center;
+            }
+
+            Text {
+                text: root.title;
+                color: #e2e8f0;
+                font-weight: 600;
+                font-size: 13px;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
 export component MainWindow inherits Window {
     title: "Pico Keypad";
     icon: @image-url("../icon_win.png");
@@ -226,14 +266,19 @@ export component MainWindow inherits Window {
     in-out property <string> display-kind: "";
     in-out property <string> display-value: "";
 
-    in-out property <bool> image-invert: false;
-
     in-out property <[string]> log-lines;
 
     in-out property <[string]> bindings-model;
     in-out property <[string]> display-rules-model;
     in-out property <int> selected-binding-index: -1;
     in-out property <int> selected-display-rule-index: -1;
+
+    in-out property <bool> splash-section-collapsed: false;
+    in-out property <bool> display-rules-section-collapsed: false;
+    in-out property <bool> display-rules-list-collapsed: false;
+    in-out property <bool> binding-editor-collapsed: false;
+    in-out property <bool> bindings-list-collapsed: false;
+    in-out property <bool> log-section-collapsed: false;
 
     callback connect-clicked();
     callback disconnect-clicked();
@@ -243,10 +288,6 @@ export component MainWindow inherits Window {
     callback encoder-ccw-clicked();
     callback encoder-cw-clicked();
     callback encoder-btn-clicked();
-
-    callback send-text();
-    callback load-image();
-    callback clear-display();
     callback load-splash-preview();
     callback save-current-splash();
     callback send-splash-to-device();
@@ -287,12 +328,13 @@ export component MainWindow inherits Window {
         triggered => { root.watchdog-tick(); }
     }
 
-    VerticalBox {
+    main-root := VerticalBox {
+        vertical-stretch: 1;
         toolbar := HorizontalLayout {
             padding: 10px;
             spacing: 10px;
             alignment: center;
-            min-height: 48px;
+            height: 65px;
 
             Rectangle {
                 background: #1a202c;
@@ -348,92 +390,77 @@ export component MainWindow inherits Window {
         }
 
         main-area := HorizontalLayout {
+            vertical-stretch: 1;
             left-panel := VerticalLayout {
-                min-width: 270px;
+                min-width: 350px;
                 horizontal-stretch: 0;
+                vertical-stretch: 1;
                 padding: 10px;
                 spacing: 10px;
 
-                GroupBox {
-                    title: "Keypad";
+                Rectangle {
+                    horizontal-stretch: 0;
+                    background: #1a202c;
+                    border-radius: 10px;
+                    border-width: 1px;
+                    border-color: #4a5568;
 
                     VerticalLayout {
                         spacing: 8px;
-                        padding: 4px;
+                        padding: 10px;
+                        vertical-stretch: 0;
 
-                        GridLayout {
+                        Image {
+                            source: root.oled-preview-image;
+                            horizontal-stretch: 0;
+                            vertical-stretch: 0;
+                            width: 384px; //256
+                            height: 96px; //64
+                            image-fit: contain;
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 1px;
+                            background: #2d3748;
+                        }
+
+                        VerticalLayout {
                             spacing: 6px;
-                            padding: 4px;
 
-                            Row {
-                                key-1 := KeyButton {
-                                    key-num: 1;
-                                    pressed: root.key-1-pressed;
-                                    clicked => { root.key-clicked(1); }
-                                }
-                                key-2 := KeyButton {
-                                    key-num: 2;
-                                    pressed: root.key-2-pressed;
-                                    clicked => { root.key-clicked(2); }
-                                }
-                                key-3 := KeyButton {
-                                    key-num: 3;
-                                    pressed: root.key-3-pressed;
-                                    clicked => { root.key-clicked(3); }
-                                }
-                                key-4 := KeyButton {
-                                    key-num: 4;
-                                    pressed: root.key-4-pressed;
-                                    clicked => { root.key-clicked(4); }
-                                }
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 6px;
+
+                                key-1 := KeyButton { key-num: 1; pressed: root.key-1-pressed; clicked => { root.key-clicked(1); } }
+                                key-2 := KeyButton { key-num: 2; pressed: root.key-2-pressed; clicked => { root.key-clicked(2); } }
+                                key-3 := KeyButton { key-num: 3; pressed: root.key-3-pressed; clicked => { root.key-clicked(3); } }
+                                key-4 := KeyButton { key-num: 4; pressed: root.key-4-pressed; clicked => { root.key-clicked(4); } }
                             }
-                            Row {
-                                key-5 := KeyButton {
-                                    key-num: 5;
-                                    pressed: root.key-5-pressed;
-                                    clicked => { root.key-clicked(5); }
-                                }
-                                key-6 := KeyButton {
-                                    key-num: 6;
-                                    pressed: root.key-6-pressed;
-                                    clicked => { root.key-clicked(6); }
-                                }
-                                key-7 := KeyButton {
-                                    key-num: 7;
-                                    pressed: root.key-7-pressed;
-                                    clicked => { root.key-clicked(7); }
-                                }
-                                key-8 := KeyButton {
-                                    key-num: 8;
-                                    pressed: root.key-8-pressed;
-                                    clicked => { root.key-clicked(8); }
-                                }
+
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 6px;
+
+                                key-5 := KeyButton { key-num: 5; pressed: root.key-5-pressed; clicked => { root.key-clicked(5); } }
+                                key-6 := KeyButton { key-num: 6; pressed: root.key-6-pressed; clicked => { root.key-clicked(6); } }
+                                key-7 := KeyButton { key-num: 7; pressed: root.key-7-pressed; clicked => { root.key-clicked(7); } }
+                                key-8 := KeyButton { key-num: 8; pressed: root.key-8-pressed; clicked => { root.key-clicked(8); } }
                             }
-                            Row {
-                                key-9 := KeyButton {
-                                    key-num: 9;
-                                    pressed: root.key-9-pressed;
-                                    clicked => { root.key-clicked(9); }
-                                }
-                                key-10 := KeyButton {
-                                    key-num: 10;
-                                    pressed: root.key-10-pressed;
-                                    clicked => { root.key-clicked(10); }
-                                }
-                                key-11 := KeyButton {
-                                    key-num: 11;
-                                    pressed: root.key-11-pressed;
-                                    clicked => { root.key-clicked(11); }
-                                }
-                                key-12 := KeyButton {
-                                    key-num: 12;
-                                    pressed: root.key-12-pressed;
-                                    clicked => { root.key-clicked(12); }
-                                }
+
+                            HorizontalLayout {
+                                alignment: center;
+                                spacing: 6px;
+
+                                key-9 := KeyButton { key-num: 9; pressed: root.key-9-pressed; clicked => { root.key-clicked(9); } }
+                                key-10 := KeyButton { key-num: 10; pressed: root.key-10-pressed; clicked => { root.key-clicked(10); } }
+                                key-11 := KeyButton { key-num: 11; pressed: root.key-11-pressed; clicked => { root.key-clicked(11); } }
+                                key-12 := KeyButton { key-num: 12; pressed: root.key-12-pressed; clicked => { root.key-clicked(12); } }
                             }
                         }
 
                         encoder := EncoderDisplay {
+                            vertical-stretch: 0;
                             direction: root.encoder-direction;
                             btn-pressed: root.encoder-btn-pressed;
                             ccw-clicked => { root.encoder-ccw-clicked(); }
@@ -443,34 +470,32 @@ export component MainWindow inherits Window {
                     }
                 }
 
-                GroupBox {
+                CollapseHeader {
                     title: "Log";
+                    collapsed <=> root.log-section-collapsed;
+                }
+
+                ScrollView {
+                    min-height: root.log-section-collapsed ? 0px : 100px;
+                    vertical-stretch: root.log-section-collapsed ? 0 : 1;
+                    visible: !root.log-section-collapsed;
 
                     VerticalLayout {
-                        vertical-stretch: 1;
+                        spacing: 1px;
+                        padding: 4px;
 
-                        ScrollView {
-                            min-height: 100px;
-                            vertical-stretch: 1;
+                        for line in root.log-lines: Rectangle {
+                            height: 25px;
+                            horizontal-stretch: 1;
+                            background: #282d39;
 
-                            VerticalLayout {
-                                spacing: 1px;
-                                padding: 4px;
-
-                                for line in root.log-lines: Rectangle {
-                                    min-height: 18px;
-                                    horizontal-stretch: 1;
-                                    background: transparent;
-
-                                    Text {
-                                        text: line;
-                                        color: #718096;
-                                        font-size: 10px;
-                                        font-family: "Consolas, monospace";
-                                        vertical-alignment: center;
-                                        overflow: elide;
-                                    }
-                                }
+                            Text {
+                                text: line;
+                                color: #718096;
+                                font-size: 10px;
+                                font-family: "Consolas, monospace";
+                                vertical-alignment: center;
+                                overflow: elide;
                             }
                         }
                     }
@@ -491,150 +516,137 @@ export component MainWindow inherits Window {
                                 spacing: 12px;
                                 padding: 10px;
 
-                                Image {
-                                    source: root.oled-preview-image;
-                                    horizontal-stretch: 0;
-                                    min-width: 256px;
-                                    min-height: 64px;
-                                    image-fit: contain;
+
+                                CollapseHeader {
+                                    title: "Splash";
+                                    collapsed <=> root.splash-section-collapsed;
                                 }
 
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    alignment: center;
+                                if !root.splash-section-collapsed : VerticalBox {
+                                    spacing: 6px;
 
-                                    Button { text: "Send Text"; clicked => { root.send-text(); } }
-                                    Button { text: "Load Image"; clicked => { root.load-image(); } }
-                                    Button { text: "Clear"; clicked => { root.clear-display(); } }
+                                    HorizontalLayout {
+                                        spacing: 8px;
 
-                                    CheckBox {
-                                        text: "Invert";
-                                        checked <=> root.image-invert;
+                                        Button { text: "Load"; height: 50px; clicked => { root
+                                        .load-splash-preview(); } }
+                                        Button { text: "Save"; height: 50px; clicked => { root
+                                        .save-current-splash(); } }
+                                        Button { text: "Send to device"; height: 50px; clicked => { root
+                                        .send-splash-to-device(); } }
+                                    }
+
+                                    Text {
+                                        vertical-stretch: 0;
+                                        text: root.splash-status;
+                                        color: #a0aec0;
+                                        font-size: 11px;
+                                        overflow: elide;
                                     }
                                 }
 
-                                GroupBox {
-                                    title: "Text";
+                                CollapseHeader {
+                                    title: "Display Rules";
+                                    collapsed <=> root.display-rules-section-collapsed;
+                                }
 
+                                if !root.display-rules-section-collapsed : VerticalBox {
+                                    spacing: 6px;
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        VerticalBox {
+                                            min-width: 200px;
+
+                                            SectionLabel { label: "Input"; height: 30px; }
+                                            ComboBox {
+                                            height: 30px;
+                                                model: root.display-events;
+                                                current-value <=> root.display-event;
+                                                selected(value) => {
+                                                    root.display-event-changed(value);
+                                                }
+                                            }
+                                        }
+
+                                        VerticalBox {
+                                            min-width: 140px;
+
+                                            SectionLabel { label: "Content"; height: 30px; }
+                                            ComboBox {
+                                            height: 30px;
+                                                model: root.display-kinds;
+                                                current-value <=> root.display-kind;
+                                                selected(value) => {
+                                                    root.display-kind-changed(value);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    SectionLabel { label: "Text or image path"; height: 30px; }
                                     TextEdit {
-                                        text <=> root.text-input;
-                                        min-height: 50px;
-                                        font-size: 13px;
+                                        text <=> root.display-value;
+                                        min-height: 60px;
+                                        max-height: 100px;
+                                        font-size: 12px;
                                         font-family: "Consolas, monospace";
                                     }
-                                }
 
-                                GroupBox {
-                                    title: "Splash";
-
-                                    VerticalBox {
+                                    HorizontalLayout {
                                         spacing: 6px;
 
-                                        HorizontalLayout {
-                                            spacing: 8px;
-
-                                            Button { text: "Load"; clicked => { root.load-splash-preview(); } }
-                                            Button { text: "Save"; clicked => { root.save-current-splash(); } }
-                                            Button { text: "Send to device"; clicked => { root.send-splash-to-device(); } }
-                                        }
-
-                                        Text {
-                                            text: root.splash-status;
-                                            color: #a0aec0;
-                                            font-size: 11px;
-                                            overflow: elide;
-                                        }
+                                        Button { text: "Save"; height: 30px; clicked => { root.save-display-rule();
+                                         } }
+                                        Button { text: "Test"; height: 30px; clicked => { root.test-display-rule
+                                        (); } }
+                                        Button { text: "Browse..."; height: 30px; clicked => { root
+                                        .browse-display-image(); } }
+                                        Button { text: "Clear"; height: 30px; clicked => { root.clear-display-rule
+                                        (); } }
                                     }
                                 }
 
-                                GroupBox {
-                                    title: "Display Rules";
+                                CollapseHeader {
+                                    title: "All Display Rules";
+                                    collapsed <=> root.display-rules-list-collapsed;
+                                }
 
-                                    VerticalBox {
-                                        spacing: 6px;
+                                if !root.display-rules-list-collapsed : ScrollView {
+                                    min-height: 100px;
+                                    vertical-stretch: 1;
 
-                                        HorizontalLayout {
-                                            spacing: 8px;
+                                    VerticalLayout {
+                                        spacing: 2px;
 
-                                            VerticalBox {
-                                                min-width: 200px;
+                                        for rule[idx] in root.display-rules-model: Rectangle {
+                                            height: 50px;
+                                            horizontal-stretch: 1;
+                                            border-radius: 4px;
+                                            border-width: 1px;
+                                            border-color: #2d3748;
+                                            background: idx == root.selected-display-rule-index ? #2d3748 : transparent;
 
-                                                SectionLabel { label: "Input"; }
-                                                ComboBox {
-                                                    model: root.display-events;
-                                                    current-value <=> root.display-event;
-                                                    selected(value) => {
-                                                        root.display-event-changed(value);
-                                                    }
-                                                }
+                                            Text {
+                                                text: rule;
+                                                color: idx == root.selected-display-rule-index ? #e2e8f0 : #a0aec0;
+                                                font-size: 12px;
+                                                vertical-alignment: center;
+                                                horizontal-alignment: start;
+                                                overflow: elide;
                                             }
 
-                                            VerticalBox {
-                                                min-width: 140px;
-
-                                                SectionLabel { label: "Content"; }
-                                                ComboBox {
-                                                    model: root.display-kinds;
-                                                    current-value <=> root.display-kind;
-                                                    selected(value) => {
-                                                        root.display-kind-changed(value);
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        SectionLabel { label: "Text or image path"; }
-                                        TextEdit {
-                                            text <=> root.display-value;
-                                            min-height: 60px;
-                                            font-size: 12px;
-                                            font-family: "Consolas, monospace";
-                                        }
-
-                                        HorizontalLayout {
-                                            spacing: 6px;
-
-                                            Button { text: "Save"; clicked => { root.save-display-rule(); } }
-                                            Button { text: "Test"; clicked => { root.test-display-rule(); } }
-                                            Button { text: "Browse..."; clicked => { root.browse-display-image(); } }
-                                            Button { text: "Clear"; clicked => { root.clear-display-rule(); } }
-                                        }
-
-                                        ScrollView {
-                                            min-height: 100px;
-                                            vertical-stretch: 1;
-
-                                            VerticalLayout {
-                                                spacing: 2px;
-
-                                                for rule[idx] in root.display-rules-model: Rectangle {
-                                                    min-height: 26px;
-                                                    horizontal-stretch: 1;
-                                                    border-radius: 4px;
-                                                    border-width: 1px;
-                                                    border-color: #2d3748;
-                                                    background: idx == root.selected-display-rule-index ? #2d3748 : transparent;
-
-                                                    Text {
-                                                        text: rule;
-                                                        color: idx == root.selected-display-rule-index ? #e2e8f0 : #a0aec0;
-                                                        font-size: 12px;
-                                                        vertical-alignment: center;
-                                                        horizontal-alignment: start;
-                                                        overflow: elide;
-                                                    }
-
-                                                    TouchArea {
-                                                        clicked => {
-                                                            root.selected-display-rule-index = idx;
-                                                            root.display-item-selected(idx);
-                                                        }
-                                                    }
+                                            TouchArea {
+                                                clicked => {
+                                                    root.selected-display-rule-index = idx;
+                                                    root.display-item-selected(idx);
                                                 }
                                             }
                                         }
                                     }
                                 }
+
                             }
                         }
                     }
@@ -647,117 +659,116 @@ export component MainWindow inherits Window {
                                 spacing: 12px;
                                 padding: 10px;
 
-                                GroupBox {
+                                CollapseHeader {
                                     title: "Editor";
+                                    collapsed <=> root.binding-editor-collapsed;
+                                }
 
-                                    VerticalBox {
+                                if !root.binding-editor-collapsed : VerticalBox {
+                                    spacing: 6px;
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+
+                                        VerticalBox {
+                                            min-width: 200px;
+
+                                            SectionLabel { label: "Input";height: 30px; }
+                                            ComboBox {
+                                            height: 30px;
+                                                model: root.binding-events;
+                                                current-value <=> root.binding-event;
+                                                selected(value) => {
+                                                    root.binding-event-changed(value);
+                                                }
+                                            }
+                                        }
+
+                                        VerticalBox {
+                                            min-width: 140px;
+
+                                            SectionLabel { label: "Action"; }
+                                            ComboBox {
+                                                model: root.binding-kinds;
+                                                current-value <=> root.binding-kind;
+                                                selected(value) => {
+                                                    root.binding-kind-changed(value);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        alignment: center;
+
+                                        VerticalBox {
+                                            min-width: 200px;
+
+                                            SectionLabel { label: "Keys"; }
+                                            ComboBox {
+                                                model: root.available-keys;
+                                                current-value <=> root.selected-key;
+                                            }
+                                        }
+
+                                        Button {
+                                            text: "Insert";
+                                            clicked => { root.insert-key(); }
+                                            vertical-stretch: 0;
+                                        }
+                                    }
+
+                                    SectionLabel { label: "Value / macro"; }
+                                    TextEdit {
+                                        text <=> root.binding-value;
+                                        min-height: 55px;
+                                        font-size: 12px;
+                                        font-family: "Consolas, monospace";
+                                    }
+
+                                    HorizontalLayout {
                                         spacing: 6px;
 
-                                        HorizontalLayout {
-                                            spacing: 8px;
-
-                                            VerticalBox {
-                                                min-width: 200px;
-
-                                                SectionLabel { label: "Input"; }
-                                                ComboBox {
-                                                    model: root.binding-events;
-                                                    current-value <=> root.binding-event;
-                                                    selected(value) => {
-                                                        root.binding-event-changed(value);
-                                                    }
-                                                }
-                                            }
-
-                                            VerticalBox {
-                                                min-width: 140px;
-
-                                                SectionLabel { label: "Action"; }
-                                                ComboBox {
-                                                    model: root.binding-kinds;
-                                                    current-value <=> root.binding-kind;
-                                                    selected(value) => {
-                                                        root.binding-kind-changed(value);
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        HorizontalLayout {
-                                            spacing: 8px;
-                                            alignment: center;
-
-                                            VerticalBox {
-                                                min-width: 200px;
-
-                                                SectionLabel { label: "Keys"; }
-                                                ComboBox {
-                                                    model: root.available-keys;
-                                                    current-value <=> root.selected-key;
-                                                }
-                                            }
-
-                                            Button {
-                                                text: "Insert";
-                                                clicked => { root.insert-key(); }
-                                                vertical-stretch: 0;
-                                            }
-                                        }
-
-                                        SectionLabel { label: "Value / macro"; }
-                                        TextEdit {
-                                            text <=> root.binding-value;
-                                            min-height: 55px;
-                                            font-size: 12px;
-                                            font-family: "Consolas, monospace";
-                                        }
-
-                                        HorizontalLayout {
-                                            spacing: 6px;
-
-                                            Button { text: "Save"; clicked => { root.save-binding(); } }
-                                            Button { text: "Test"; clicked => { root.test-binding(); } }
-                                            Button { text: "Clear"; clicked => { root.clear-binding(); } }
-                                        }
+                                        Button { text: "Save"; clicked => { root.save-binding(); } }
+                                        Button { text: "Test"; clicked => { root.test-binding(); } }
+                                        Button { text: "Clear"; clicked => { root.clear-binding(); } }
                                     }
                                 }
 
-                                GroupBox {
+                                CollapseHeader {
                                     title: "All Bindings";
+                                    collapsed <=> root.bindings-list-collapsed;
+                                }
 
-                                    VerticalBox {
-                                        vertical-stretch: 1;
+                                if !root.bindings-list-collapsed : ScrollView {
+                                    min-height: 140px;
+                                    vertical-stretch: 1;
 
-                                        ScrollView {
-                                            min-height: 140px;
-                                            vertical-stretch: 1;
+                                    VerticalLayout {
+                                        spacing: 2px;
 
-                                            VerticalLayout {
-                                                spacing: 2px;
+                                        for binding[idx] in root.bindings-model: Rectangle {
+                                            min-height: 26px;
+                                            horizontal-stretch: 1;
+                                            border-radius: 4px;
+                                            border-width: 1px;
+                                            border-color: #2d3748;
+                                            background: idx == root.selected-binding-index ? #2d3748 : transparent;
 
-                                                for binding[idx] in root.bindings-model: Rectangle {
-                                                    min-height: 26px;
-                                                    horizontal-stretch: 1;
-                                                    border-radius: 4px;
-                                                    border-width: 1px;
-                                                    border-color: #2d3748;
-                                                    background: idx == root.selected-binding-index ? #2d3748 : transparent;
+                                            Text {
+                                                text: binding;
+                                                color: idx == root.selected-binding-index ? #e2e8f0 : #a0aec0;
+                                                font-size: 12px;
+                                                vertical-alignment: center;
+                                                horizontal-alignment: start;
+                                                overflow: elide;
+                                            }
 
-                                                    Text {
-                                                        text: binding;
-                                                        color: idx == root.selected-binding-index ? #e2e8f0 : #a0aec0;
-                                                        font-size: 12px;
-                                                        vertical-alignment: center;
-                                                        horizontal-alignment: start;
-                                                        overflow: elide;
-                                                    }
-
-                                                    TouchArea {
-                                                        clicked => {
-                                                            root.selected-binding-index = idx;
-                                                            root.binding-item-selected(idx);
-                                                        }
-                                                    }
+                                            TouchArea {
+                                                clicked => {
+                                                    root.selected-binding-index = idx;
+                                                    root.binding-item-selected(idx);
                                                 }
                                             }
                                         }
