@@ -13,13 +13,7 @@ SLINT_FILE = APP_ROOT / "gui_slint" / "main_window.slint"
 
 datas = [
     (str(SLINT_FILE), "app/gui_slint"),
-    (str(APP_ROOT / "bindings.json"), "app"),
-    (str(APP_ROOT / "display_rules.json"), "app"),
 ]
-# Splash file is optional - include if present
-splash = APP_ROOT / "splash.bin"
-if splash.exists():
-    datas.append((str(splash), "app"))
 
 a = Analysis(
     [str(APP_ROOT / "main.py")],
