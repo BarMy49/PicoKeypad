@@ -27,6 +27,8 @@ a = Analysis(
         "PIL.ImageFont",
         "serial",
         "serial.tools.list_ports",
+        "winsdk.windows.media.control",
+        "winrt.windows.media.control",
     ],
     hookspath=[],
     runtime_hooks=[],
