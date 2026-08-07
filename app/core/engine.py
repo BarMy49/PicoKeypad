@@ -386,7 +386,7 @@ class PicoKeypadEngine:
         except Exception:
             pass
 
-    def send_image_to_display(self, path: str, invert: bool = False) -> None:
+    def send_image_to_display(self, path: str, invert: bool = True) -> None:
         path = path.strip()
         if not path:
             return
@@ -528,7 +528,7 @@ class PicoKeypadEngine:
         return None
 
     @staticmethod
-    def pil_image_to_oled_buffer(pil_img: Any, invert: bool = False) -> bytes:
+    def pil_image_to_oled_buffer(pil_img: Any, invert: bool = True) -> bytes:
         src_width, src_height = pil_img.size
         if src_width <= 0 or src_height <= 0:
             raise ValueError("Image is empty")
