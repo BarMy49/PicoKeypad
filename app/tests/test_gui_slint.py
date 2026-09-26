@@ -32,10 +32,26 @@ class SlintWindowCompileTests(unittest.TestCase):
         self.assertTrue(hasattr(w, "key_12_pressed"))
         self.assertTrue(hasattr(w, "encoder_direction"))
         self.assertTrue(hasattr(w, "encoder_btn_pressed"))
-        self.assertTrue(hasattr(w, "binding_event"))
-        self.assertTrue(hasattr(w, "binding_kind"))
-        self.assertTrue(hasattr(w, "display_event"))
+        self.assertTrue(hasattr(w, "action_event"))
+        self.assertTrue(hasattr(w, "action_kind"))
+        self.assertTrue(hasattr(w, "action_value"))
+        self.assertTrue(hasattr(w, "volume_value"))
+        self.assertTrue(hasattr(w, "media_value"))
+        self.assertTrue(hasattr(w, "toggle_image_on"))
+        self.assertTrue(hasattr(w, "toggle_image_off"))
         self.assertTrue(hasattr(w, "display_kind"))
+        self.assertTrue(hasattr(w, "display_value"))
+        self.assertTrue(hasattr(w, "splash_mode"))
+        self.assertTrue(hasattr(w, "splash_interval"))
+        self.assertTrue(hasattr(w, "splash_idle"))
+        self.assertTrue(hasattr(w, "splash_template"))
+        self.assertTrue(hasattr(w, "splash_font_size"))
+        self.assertTrue(hasattr(w, "splash_line_spacing"))
+        self.assertTrue(hasattr(w, "splash_alignment"))
+        self.assertTrue(hasattr(w, "splash_status"))
+        self.assertTrue(hasattr(w, "actions_model"))
+        self.assertTrue(hasattr(w, "connect_on_start"))
+        self.assertTrue(hasattr(w, "start_minimized"))
         self.assertTrue(hasattr(w, "msg_timer_running"))
         self.assertTrue(hasattr(w, "wd_timer_running"))
 
@@ -47,12 +63,17 @@ class SlintWindowCompileTests(unittest.TestCase):
         comps = slint.load_file(slint_file)
         w = comps.MainWindow()
 
-        self.assertTrue(callable(getattr(w, "connect_clicked", None)))
-        self.assertTrue(callable(getattr(w, "disconnect_clicked", None)))
+        self.assertTrue(callable(getattr(w, "toggle_connection", None)))
         self.assertTrue(callable(getattr(w, "refresh_ports", None)))
         self.assertTrue(callable(getattr(w, "key_clicked", None)))
-        self.assertTrue(callable(getattr(w, "save_binding", None)))
-        self.assertTrue(callable(getattr(w, "save_display_rule", None)))
+        self.assertTrue(callable(getattr(w, "save_action", None)))
+        self.assertTrue(callable(getattr(w, "test_action", None)))
+        self.assertTrue(callable(getattr(w, "clear_action", None)))
+        self.assertTrue(callable(getattr(w, "insert_key", None)))
+        self.assertTrue(callable(getattr(w, "browse_display_image", None)))
+        self.assertTrue(callable(getattr(w, "load_splash_image", None)))
+        self.assertTrue(callable(getattr(w, "splash_save", None)))
+        self.assertTrue(callable(getattr(w, "splash_preview", None)))
         self.assertTrue(callable(getattr(w, "poll_messages", None)))
         self.assertTrue(callable(getattr(w, "watchdog_tick", None)))
 
@@ -62,21 +83,34 @@ class SlintKeypadAppInitTests(unittest.TestCase):
         from app.gui_slint import SlintKeypadApp
 
         with tempfile.TemporaryDirectory() as tmp:
-            bindings_path = str(Path(tmp) / "bindings.json")
-            rules_path = str(Path(tmp) / "rules.json")
+            actions_path = str(Path(tmp) / "actions.json")
 
             app = SlintKeypadApp(
                 initial_port="COM99",
-                bindings_path=bindings_path,
-                display_rules_path=rules_path,
+                actions_path=actions_path,
             )
 
             self.assertIsNotNone(app._w)
             self.assertIsNotNone(app._engine)
             self.assertIsNotNone(app._engine.client)
-            self.assertIsNotNone(app._engine.binding_store)
-            self.assertIsNotNone(app._engine.display_store)
+            self.assertIsNotNone(app._engine.action_store)
             self.assertIsNotNone(app._engine.action_runner)
+
+    def test_app_settings_widgets_populated(self):
+        from app.gui_slint import SlintKeypadApp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            actions_path = str(Path(tmp) / "actions.json")
+
+            app = SlintKeypadApp(
+                initial_port="COM99",
+                actions_path=actions_path,
+            )
+
+            self.assertEqual(app._w.action_event, "Key 1 press")
+            self.assertEqual(app._w.volume_value, "volume_up")
+            self.assertEqual(app._w.media_value, "media_play_pause")
+            self.assertIn(app._w.splash_mode, ("static", "text", "clock", "custom"))
 
 
 if __name__ == "__main__":

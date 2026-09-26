@@ -15,12 +15,8 @@ def main() -> None:
         help="Start minimized to system tray",
     )
     parser.add_argument(
-        "--bindings",
-        help="Path to the bindings JSON file. Defaults to app/bindings.json",
-    )
-    parser.add_argument(
-        "--display-rules",
-        help="Path to the display rules JSON file. Defaults to app/display_rules.json",
+        "--actions",
+        help="Path to the actions JSON file. Defaults to app/actions.json",
     )
     args = parser.parse_args()
 
@@ -38,8 +34,7 @@ def main() -> None:
 
     run(
         port=args.port,
-        bindings_path=args.bindings,
-        display_rules_path=args.display_rules,
+        actions_path=args.actions,
         start_minimized=args.minimized or None,
     )
 

@@ -6,26 +6,43 @@ from typing import Any, Callable
 
 from . import protocol
 from .actions import (
-    ACTION_FUNCTION,
-    ACTION_HOTKEY,
+    ACTION_DISABLED,
     ACTION_MACRO,
+    ACTION_MEDIA,
+    ACTION_TOGGLE,
+    ACTION_VOLUME,
     Action,
     ActionRunner,
     display_lines_from_value,
     split_macro_line,
-)
-from .bindings import BindingStore, event_id_from_message
-from .display_rules import (
     DISPLAY_IMAGE,
     DISPLAY_MEDIA,
     DISPLAY_NONE,
     DISPLAY_TEXT,
     DISPLAY_VOLUME,
-    DisplayRule,
-    DisplayRuleStore,
 )
+from .actions_store import ActionStore, event_id_from_message
 from .serial_transport import PicoKeypadClient, SerialConnectionError
-from .splash_store import DEFAULT_SPLASH_PATH, load_splash_binary, save_splash_binary
+from .splash_store import (
+    DEFAULT_SPLASH_CONFIG_PATH,
+    DEFAULT_SPLASH_PATH,
+    SPLASH_MODE_CLOCK,
+    SPLASH_MODE_CUSTOM,
+    SPLASH_MODE_STATIC,
+    SPLASH_MODE_TEXT,
+    SplashConfig,
+    load_splash_binary,
+    load_splash_config,
+    save_splash_binary,
+    save_splash_config,
+)
+from .splash_renderer import (
+    clock_to_lines,
+    clock_to_oled_buffer,
+    get_time_info,
+    render_template,
+    text_buffer_from_lines,
+)
 from .system_status import get_media_status, get_volume_status, media_display_lines, volume_display_lines
 
 
@@ -39,6 +56,7 @@ class EngineCallback:
         "on_display_buffer",
         "on_connecting",
         "on_device_busy",
+        "on_toggle_state",
     )
 
     def __init__(self):
@@ -62,16 +80,18 @@ class PicoKeypadEngine:
     def __init__(
         self,
         initial_port: str | None = None,
-        bindings_path: str | Path | None = None,
-        display_rules_path: str | Path | None = None,
+        actions_path: str | Path | None = None,
+        splash_config_path: str | Path | None = None,
     ):
         self.client = PicoKeypadClient(port=initial_port)
-        self.binding_store = BindingStore(bindings_path)
-        self.display_store = DisplayRuleStore(display_rules_path)
+        self.action_store = ActionStore(actions_path)
         self.action_runner = ActionRunner(
             on_error=lambda text: self._events.fire("on_log", f"ACTION ERROR: {text}"),
             on_display=lambda lines: self._fire_display_from_action(lines),
         )
+
+        self._splash_config_path = Path(splash_config_path) if splash_config_path is not None else DEFAULT_SPLASH_CONFIG_PATH
+        self.splash_config = load_splash_config(self._splash_config_path)
 
         self._events = EngineCallback()
         self._stop_reader = threading.Event()
@@ -83,6 +103,8 @@ class PicoKeypadEngine:
         self._dev_busy = False
         self._ready_status: str | None = None
         self._splash_timer: threading.Timer | None = None
+        self._splash_loop_timer: threading.Timer | None = None
+        self._in_splash_mode = False
         self._reconnect_timer: threading.Timer | None = None
         self._reconnect_port: str | None = None
         self._auto_reconnect = False
@@ -142,6 +164,8 @@ class PicoKeypadEngine:
     def disconnect(self) -> None:
         self._stop_reconnect()
         self._cancel_splash_timer()
+        self._cancel_splash_loop()
+        self._in_splash_mode = False
         try:
             if self.client.is_open:
                 self.client.send_disconnect()
@@ -206,7 +230,35 @@ class PicoKeypadEngine:
 
     def _on_splash_inactivity(self) -> None:
         self._splash_timer = None
+        self._in_splash_mode = True
         self.send_splash_to_device()
+        self._arm_splash_loop_timer()
+
+    def _arm_splash_loop_timer(self) -> None:
+        self._cancel_splash_loop()
+        if self.splash_config.mode == SPLASH_MODE_STATIC:
+            return
+        if self.splash_config.interval <= 0:
+            return
+        self._splash_loop_timer = threading.Timer(self.splash_config.interval, self._splash_loop_tick)
+        self._splash_loop_timer.daemon = True
+        self._splash_loop_timer.start()
+
+    def _cancel_splash_loop(self) -> None:
+        if self._splash_loop_timer is not None:
+            self._splash_loop_timer.cancel()
+            self._splash_loop_timer = None
+
+    def _splash_loop_tick(self) -> None:
+        if not self._in_splash_mode:
+            return
+        self._splash_loop_timer = None
+        self.send_splash_to_device()
+        self._arm_splash_loop_timer()
+
+    def _exit_splash_mode(self) -> None:
+        self._in_splash_mode = False
+        self._cancel_splash_loop()
 
     def _reader_loop(self) -> None:
         while not self._stop_reader.is_set():
@@ -275,12 +327,13 @@ class PicoKeypadEngine:
             self._events.fire("on_log", json.dumps(message))
         elif message_type == "key":
             self._arm_splash_timer()
+            self._exit_splash_mode()
             self._events.fire("on_key_state", int(message.get("key", 0)),
                               message.get("event") == "down")
-            self._run_binding_for_message(message)
-            self._run_display_rule_for_message(message)
+            self._run_action_for_message(message)
         elif message_type == "encoder":
             self._arm_splash_timer()
+            self._exit_splash_mode()
             event = message.get("event")
             if event == "turn":
                 delta = int(message.get("delta", 0))
@@ -289,8 +342,7 @@ class PicoKeypadEngine:
             elif event in ("button_down", "button_up"):
                 self._events.fire("on_encoder_state", None,
                                   bool(message.get("pressed")))
-            self._run_binding_for_message(message)
-            self._run_display_rule_for_message(message)
+            self._run_action_for_message(message)
         elif message_type == "ack":
             self._events.fire("on_log", f"ACK {message.get('result')}")
         elif message_type == "error":
@@ -317,6 +369,82 @@ class PicoKeypadEngine:
         else:
             self._events.fire("on_log", message.get("message") or json.dumps(message))
 
+    def _run_action_for_message(self, message: dict[str, Any]) -> None:
+        event_id = event_id_from_message(message)
+        if event_id is None:
+            return
+
+        action = self.action_store.get(event_id)
+        if not action.enabled():
+            return
+
+        if action.kind == ACTION_TOGGLE:
+            self._run_toggle_action(event_id, action)
+        else:
+            self._run_regular_action(action)
+
+    def _run_regular_action(self, action: Action) -> None:
+        if action.kind != ACTION_DISABLED and bool(action.value.strip()):
+            threading.Thread(target=self.action_runner.run, args=(action,), daemon=True).start()
+
+        display = action.display
+        if display == DISPLAY_NONE:
+            display = self.default_display_for_kind(action.kind)
+        if display != DISPLAY_NONE:
+            self.apply_display_response(display, action.display_value)
+
+    def _run_toggle_action(self, event_id: str, action: Action) -> None:
+        new_state = self.action_store.toggle_state(event_id)
+        action.state = new_state
+        self._events.fire("on_toggle_state", event_id, new_state)
+
+        branch = action.action_on if new_state else action.action_off
+        if branch.strip():
+            self._run_string_action(branch)
+
+        image = action.image_on if new_state else action.image_off
+        if image.strip():
+            self.send_image_to_display(image)
+
+    def _run_string_action(self, action_str: str) -> None:
+        command, value = split_macro_line(action_str)
+
+        def worker() -> None:
+            try:
+                if command in ("hotkey", "combo"):
+                    self.action_runner.keyboard.press_hotkey(value)
+                elif command in ("key", "press", "function", "volume", "media"):
+                    self.action_runner.keyboard.press_key(value)
+                elif command in ("text", "type"):
+                    self.action_runner.keyboard.type_text(value)
+                elif command == "macro":
+                    self.action_runner.run(Action(kind=ACTION_MACRO, value=value))
+                else:
+                    # Bare value like "f13" or "ctrl+shift+a" → treat as a hotkey combo
+                    self.action_runner.keyboard.press_hotkey(action_str.strip())
+            except Exception as exc:
+                self._events.fire("on_log", f"ACTION ERROR: {exc}")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    @staticmethod
+    def default_display_for_kind(kind: str) -> str:
+        if kind == ACTION_VOLUME:
+            return DISPLAY_VOLUME
+        if kind == ACTION_MEDIA:
+            return DISPLAY_MEDIA
+        return DISPLAY_NONE
+
+    def apply_display_response(self, display: str, value: str) -> None:
+        if display == DISPLAY_TEXT:
+            self.send_text_to_display(display_lines_from_value(value))
+        elif display == DISPLAY_IMAGE:
+            self.send_image_to_display(value)
+        elif display == DISPLAY_VOLUME:
+            self._send_system_status_display(DISPLAY_VOLUME)
+        elif display == DISPLAY_MEDIA:
+            self._send_system_status_display(DISPLAY_MEDIA)
+
     def _start_background_pump(self) -> None:
         def pump() -> None:
             while not self._bg_pump_stop:
@@ -339,6 +467,7 @@ class PicoKeypadEngine:
     def stop(self) -> None:
         self._bg_pump_stop = True
         self._cancel_splash_timer()
+        self._cancel_splash_loop()
         if self.client.is_open:
             self.disconnect()
         self._stop_reader.set()
@@ -346,34 +475,51 @@ class PicoKeypadEngine:
     def is_device_busy(self) -> bool:
         return self._dev_busy
 
-    def get_binding(self, event_id: str) -> Action:
-        return self.binding_store.get(event_id)
+    # ---- action store access ----
 
-    def set_binding(self, event_id: str, action: Action) -> None:
-        self.binding_store.set(event_id, action)
+    def get_action(self, event_id: str) -> Action:
+        return self.action_store.get(event_id)
 
-    def clear_binding(self, event_id: str) -> None:
-        self.binding_store.clear(event_id)
+    def set_action(self, event_id: str, action: Action) -> None:
+        self.action_store.set(event_id, action)
 
-    def get_all_bindings(self) -> dict[str, Action]:
-        return dict(self.binding_store.bindings)
+    def clear_action(self, event_id: str) -> None:
+        self.action_store.clear(event_id)
 
-    def get_display_rule(self, event_id: str) -> DisplayRule:
-        return self.display_store.get(event_id)
+    def get_all_actions(self) -> dict[str, Action]:
+        return dict(self.action_store.actions)
 
-    def set_display_rule(self, event_id: str, rule: DisplayRule) -> None:
-        self.display_store.set(event_id, rule)
+    def toggle_binding(self, event_id: str) -> bool:
+        action = self.action_store.get(event_id)
+        if action.kind != ACTION_TOGGLE:
+            return False
+        new_state = self.action_store.toggle_state(event_id)
+        self._events.fire("on_toggle_state", event_id, new_state)
+        return new_state
 
-    def clear_display_rule(self, event_id: str) -> None:
-        self.display_store.clear(event_id)
+    def get_toggle_state(self, event_id: str) -> bool:
+        return bool(self.action_store.get(event_id).state)
 
-    def get_all_display_rules(self) -> dict[str, DisplayRule]:
-        return dict(self.display_store.rules)
+    # ---- splash config ----
+
+    def get_splash_config(self) -> SplashConfig:
+        return self.splash_config
+
+    def set_splash_config(self, config: SplashConfig, persist: bool = True) -> None:
+        self.splash_config = config
+        self.SPLASH_INACTIVITY_S = config.idle_timeout
+        if persist:
+            save_splash_config(config, self._splash_config_path)
+
+    def splash_config_path(self) -> Path:
+        return self._splash_config_path
+
+    # ---- actions execution ----
 
     def run_action(self, action: Action) -> None:
         if not action.enabled():
             return
-        self.action_runner.run(action)
+        threading.Thread(target=self.action_runner.run, args=(action,), daemon=True).start()
 
     def send_text_to_display(self, lines: list[str]) -> None:
         lines = self._render_display_lines(lines)
@@ -412,15 +558,43 @@ class PicoKeypadEngine:
             pass
 
     def send_splash_to_device(self) -> bool:
-        buffer = load_splash_binary(DEFAULT_SPLASH_PATH)
-        if buffer is None:
-            return False
+        config = self.splash_config
+
+        buffer: bytes | None = None
+
         try:
-            self.client.send_image(buffer)
-            self._events.fire("on_display_buffer", buffer)
-            return True
+            if config.mode == SPLASH_MODE_STATIC:
+                buffer = load_splash_binary(DEFAULT_SPLASH_PATH)
+                if buffer is None:
+                    return False
+            elif config.mode == SPLASH_MODE_CLOCK:
+                buffer = clock_to_oled_buffer(get_time_info())
+            elif config.mode == SPLASH_MODE_TEXT:
+                buffer = text_buffer_from_lines(
+                    clock_to_lines(get_time_info()),
+                    font_size=config.font_size,
+                    alignment=config.alignment,
+                    line_spacing=config.line_spacing,
+                )
+            elif config.mode == SPLASH_MODE_CUSTOM:
+                buffer = text_buffer_from_lines(
+                    render_template(config.template, get_time_info()),
+                    font_size=config.font_size,
+                    alignment=config.alignment,
+                    line_spacing=config.line_spacing,
+                )
+            else:
+                return False
         except Exception:
             return False
+
+        self._events.fire("on_display_buffer", buffer)
+        if self.client.is_open:
+            try:
+                self.client.send_image(buffer)
+            except Exception:
+                pass
+        return True
 
     def load_splash(self) -> bytes | None:
         return load_splash_binary(DEFAULT_SPLASH_PATH)
@@ -431,45 +605,7 @@ class PicoKeypadEngine:
     def splash_path(self) -> Path:
         return DEFAULT_SPLASH_PATH
 
-    def _run_binding_for_message(self, message: dict[str, Any]) -> None:
-        event_id = event_id_from_message(message)
-        if event_id is None:
-            return
-
-        action = self.binding_store.get(event_id)
-        if not action.enabled():
-            return
-
-        repeats = 1
-        if event_id in ("encoder:cw", "encoder:ccw"):
-            repeats = min(20, abs(int(message.get("delta", 1))))
-
-        self._apply_volume_indicator(action, repeats)
-
-        action_repeats = 1
-        for _ in range(action_repeats):
-            self.action_runner.run(action)
-
-    def _run_display_rule_for_message(self, message: dict[str, Any]) -> None:
-        event_id = event_id_from_message(message)
-        if event_id is None:
-            return
-
-        rule = self.display_store.get(event_id)
-        if not rule.enabled():
-            return
-
-        self._apply_display_rule(rule)
-
-    def _apply_display_rule(self, rule: DisplayRule) -> None:
-        if rule.kind == DISPLAY_TEXT:
-            self.send_text_to_display(display_lines_from_value(rule.value))
-        elif rule.kind == DISPLAY_IMAGE:
-            self.send_image_to_display(rule.value)
-        elif rule.kind == DISPLAY_VOLUME:
-            self._send_system_status_display(DISPLAY_VOLUME)
-        elif rule.kind == DISPLAY_MEDIA:
-            self._send_system_status_display(DISPLAY_MEDIA)
+    # ---- system status display ----
 
     def _send_system_status_display(self, kind: str) -> None:
         def worker() -> None:
@@ -505,27 +641,7 @@ class PicoKeypadEngine:
             rendered.append(text)
         return rendered
 
-    def _apply_volume_indicator(self, action: Action, repeats: int) -> None:
-        volume_action = self._volume_action_from_action(action)
-        if volume_action is None:
-            return
-        self._send_system_status_display(DISPLAY_VOLUME)
-
-    @staticmethod
-    def _volume_action_from_action(action: Action) -> str | None:
-        if action.kind == ACTION_FUNCTION:
-            value = action.value.strip().lower()
-            if value in ("volume_up", "volume_down", "volume_mute"):
-                return value
-        if action.kind == ACTION_MACRO:
-            for raw_line in action.value.splitlines():
-                command, value = split_macro_line(raw_line.strip())
-                value = value.strip().lower()
-                if command in ("key", "press", "function") and value in (
-                    "volume_up", "volume_down", "volume_mute",
-                ):
-                    return value
-        return None
+    # ---- image helpers ----
 
     @staticmethod
     def pil_image_to_oled_buffer(pil_img: Any, invert: bool = True) -> bytes:

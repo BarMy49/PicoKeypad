@@ -7,29 +7,46 @@ from dataclasses import dataclass
 
 ACTION_DISABLED = "disabled"
 ACTION_HOTKEY = "hotkey"
-ACTION_TEXT = "text"
-ACTION_FUNCTION = "function"
 ACTION_MACRO = "macro"
+ACTION_VOLUME = "volume"
+ACTION_MEDIA = "media"
+ACTION_TOGGLE = "toggle"
 
 ACTION_TYPES = (
     ACTION_DISABLED,
     ACTION_HOTKEY,
-    ACTION_TEXT,
-    ACTION_FUNCTION,
     ACTION_MACRO,
+    ACTION_VOLUME,
+    ACTION_MEDIA,
+    ACTION_TOGGLE,
 )
 
-FUNCTIONS = {
-    "volume_up": "volume_up",
-    "volume_down": "volume_down",
-    "volume_mute": "volume_mute",
-    "media_play_pause": "media_play_pause",
-    "media_next": "media_next",
-    "media_previous": "media_previous",
-    "browser_back": "browser_back",
-    "browser_forward": "browser_forward",
-    "browser_refresh": "browser_refresh",
-}
+VOLUME_VALUES = (
+    "volume_up",
+    "volume_down",
+    "volume_mute",
+)
+
+MEDIA_VALUES = (
+    "media_play_pause",
+    "media_next",
+    "media_previous",
+    "media_stop",
+)
+
+DISPLAY_NONE = "none"
+DISPLAY_TEXT = "text"
+DISPLAY_IMAGE = "image"
+DISPLAY_VOLUME = "volume_bar"
+DISPLAY_MEDIA = "media_info"
+
+DISPLAY_TYPES = (
+    DISPLAY_NONE,
+    DISPLAY_TEXT,
+    DISPLAY_IMAGE,
+    DISPLAY_VOLUME,
+    DISPLAY_MEDIA,
+)
 
 MODIFIER_KEYS = (
     "ctrl",
@@ -85,7 +102,11 @@ NUMPAD_KEYS = (
     "decimal",
 )
 
-MEDIA_KEYS = tuple(FUNCTIONS)
+MEDIA_KEYS = tuple(MEDIA_VALUES + VOLUME_VALUES + (
+    "browser_back",
+    "browser_forward",
+    "browser_refresh",
+))
 
 KEY_GROUPS = (
     ("Modifiers", MODIFIER_KEYS),
@@ -113,18 +134,42 @@ class ActionError(RuntimeError):
 class Action:
     kind: str = ACTION_DISABLED
     value: str = ""
+    display: str = DISPLAY_NONE
+    display_value: str = ""
+    state: bool = False
+    action_on: str = ""
+    action_off: str = ""
+    image_on: str = ""
+    image_off: str = ""
 
     def enabled(self) -> bool:
-        return self.kind != ACTION_DISABLED and bool(self.value.strip())
+        if self.kind == ACTION_TOGGLE:
+            return True
+        if self.kind != ACTION_DISABLED and bool(self.value.strip()):
+            return True
+        if self.display in (DISPLAY_VOLUME, DISPLAY_MEDIA):
+            return True
+        return self.display != DISPLAY_NONE and bool(self.display_value.strip())
 
-    def to_dict(self) -> dict[str, str]:
-        return {
+    def to_dict(self) -> dict[str, object]:
+        data: dict[str, object] = {
             "kind": self.kind,
             "value": self.value,
+            "display": self.display,
+            "display_value": self.display_value,
         }
+        if self.kind == ACTION_TOGGLE:
+            data.update({
+                "state": self.state,
+                "action_on": self.action_on,
+                "action_off": self.action_off,
+                "image_on": self.image_on,
+                "image_off": self.image_off,
+            })
+        return data
 
     @classmethod
-    def from_dict(cls, data: dict[str, str] | None) -> "Action":
+    def from_dict(cls, data: dict[str, object] | None) -> "Action":
         if not isinstance(data, dict):
             return cls()
 
@@ -132,7 +177,21 @@ class Action:
         if kind not in ACTION_TYPES:
             kind = ACTION_DISABLED
 
-        return cls(kind=kind, value=str(data.get("value", "")))
+        display = str(data.get("display", DISPLAY_NONE))
+        if display not in DISPLAY_TYPES:
+            display = DISPLAY_NONE
+
+        return cls(
+            kind=kind,
+            value=str(data.get("value", "")),
+            display=display,
+            display_value=str(data.get("display_value", "")),
+            state=bool(data.get("state", False)),
+            action_on=str(data.get("action_on", "")),
+            action_off=str(data.get("action_off", "")),
+            image_on=str(data.get("image_on", "")),
+            image_off=str(data.get("image_off", "")),
+        )
 
 
 class KeyboardController:
@@ -173,10 +232,6 @@ class ActionRunner:
         if not action.enabled():
             return
 
-        thread = threading.Thread(target=self._run_locked, args=(action,), daemon=True)
-        thread.start()
-
-    def _run_locked(self, action: Action) -> None:
         try:
             with self._lock:
                 self._run(action)
@@ -187,14 +242,33 @@ class ActionRunner:
     def _run(self, action: Action) -> None:
         if action.kind == ACTION_HOTKEY:
             self.keyboard.press_hotkey(action.value)
-        elif action.kind == ACTION_TEXT:
-            self.keyboard.type_text(action.value)
-        elif action.kind == ACTION_FUNCTION:
-            self.keyboard.press_key(action.value)
         elif action.kind == ACTION_MACRO:
             self._run_macro(action.value)
+        elif action.kind in (ACTION_VOLUME, ACTION_MEDIA):
+            self.keyboard.press_key(action.value)
+        elif action.kind == ACTION_TOGGLE:
+            self._run_toggle(action)
         else:
             raise ActionError("Unsupported action kind: {}".format(action.kind))
+
+    def _run_toggle(self, action: Action) -> None:
+        branch = action.action_on if action.state else action.action_off
+        if branch.strip():
+            self._execute_string_action(branch)
+
+    def _execute_string_action(self, action_str: str) -> None:
+        command, value = split_macro_line(action_str)
+        if command in ("hotkey", "combo"):
+            self.keyboard.press_hotkey(value)
+        elif command in ("key", "press", "function", "volume", "media"):
+            self.keyboard.press_key(value)
+        elif command in ("text", "type"):
+            self.keyboard.type_text(value)
+        elif command == "macro":
+            self._run_macro(value)
+        else:
+            # Bare value like "f13" or "ctrl+shift+a" → treat as a hotkey combo
+            self.keyboard.press_hotkey(action_str.strip())
 
     def _run_macro(self, script: str) -> None:
         for line_number, raw_line in enumerate(script.splitlines(), start=1):
@@ -205,7 +279,7 @@ class ActionRunner:
             command, value = split_macro_line(line)
             if command in ("hotkey", "combo"):
                 self.keyboard.press_hotkey(value)
-            elif command in ("key", "press", "function"):
+            elif command in ("key", "press", "function", "volume", "media"):
                 self.keyboard.press_key(value)
             elif command in ("text", "type"):
                 self.keyboard.type_text(value)

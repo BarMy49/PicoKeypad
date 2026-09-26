@@ -6,18 +6,24 @@ A customizable USB keypad built on the Raspberry Pi Pico with a 128x32 SSD1306 O
 
 ### Desktop Application
 - **Slint-based GUI** with dark theme and live OLED preview
-- **Action system** -- map every key and encoder event to:
-  - **Hotkeys** -- multi-key combos (`ctrl+shift+a`)
-  - **Function keys** -- single media/system keys (`volume_up`, `mute`, `play_pause`, `f13`, etc.)
-  - **Text** -- type literal strings
-  - **Macros** -- multi-step sequences with delays, display commands, and combos
-  - **Display text** -- push custom text to the OLED
-- **Display rules** -- automatically show on the OLED on any event:
-  - **Volume bar** -- current system volume level
-  - **Media info** -- currently playing track (Windows only)
-  - **Custom text** -- with `{volume}` and `{mute}` placeholders
-  - **Images** -- any PNG/JPEG (converted to 128x32 monochrome)
-- **Splash screen** -- auto-sent when idle for 2 seconds; upload custom images
+- **Unified action system** -- every key and encoder event maps to a single action with two parts:
+  - **Response** -- what happens on the PC:
+    - **Hotkeys** -- multi-key combos (`ctrl+shift+a`)
+    - **Macros** -- multi-step sequences with delays, display commands, and combos
+    - **Volume** -- `volume_up` / `volume_down` / `volume_mute`
+    - **Media** -- `media_play_pause`, `media_next`, `media_previous`, `media_stop`
+    - **Toggle** -- flips between ON and OFF, each with its own action and image; state persists in the config JSON
+  - **Display response** -- what appears on the OLED:
+    - **Custom text** -- with `{volume}` and `{mute}` placeholders
+    - **Images** -- any PNG/JPEG (converted to 128x32 monochrome)
+    - **Volume bar** -- current system volume level (auto-selected for volume actions)
+    - **Media info** -- currently playing track (auto-selected for media actions, Windows only)
+- **Dynamic splash screen** -- instead of a static image, the idle splash can show:
+  - **Static** -- the classic uploaded image
+  - **Clock** -- large bold time with date and weekday footer
+  - **Text** -- time/date lines with configurable font size, spacing and alignment
+  - **Custom template** -- free-form text with `{time}`, `{time_short}`, `{date}`, `{date_short}`, `{weekday}` placeholders
+- **Settings tab** -- connect on start, start minimized, splash mode / interval / idle timeout / template / font settings
 - **System tray** -- minimize to tray with show/quit menu (requires `pystray`)
 
 ### Firmware
@@ -69,8 +75,7 @@ python app/main.py
 
 Optional CLI arguments:
 - `--port COM5` -- connect to a specific serial port
-- `--bindings path/to/bindings.json` -- custom bindings file
-- `--display-rules path/to/rules.json` -- custom display rules file
+- `--actions path/to/actions.json` -- custom actions file
 
 ### 4. Connect
 
@@ -85,28 +90,68 @@ pyinstaller PicoKeypad.spec
 
 Output lands in `dist\PicoKeypad\`. Run `PicoKeypad.exe` from anywhere -- no Python needed.
 
-The spec bundles `bindings.json`, `display_rules.json`, the Slint UI, and `splash.bin` (if present). Tkinter is excluded to keep the build lean. For an alternative build that includes an icon and `slint` hidden import, use the root-level `PicoKeypad.spec`.
+The spec bundles the Slint UI and icons. Tkinter is excluded to keep the build lean. For an alternative build that includes an icon and `slint` hidden import, use the root-level `PicoKeypad.spec`.
 
 ## Configuration Files
 
-### `bindings.json`
+### `actions.json`
 
-Maps hardware events to actions. Default layout:
+Maps hardware events to unified actions. Each action has a **response** (`kind` + `value`) and a **display response** (`display` + `display_value`). Toggles additionally store their state and per-state action/image:
 
-| Event | Action |
-|-------|--------|
-| Encoder CW | `volume_up` |
-| Encoder CCW | `volume_down` |
-| Encoder button | `volume_mute` |
-| Key 2 | `media_previous` |
-| Key 3 | `media_play_pause` |
-| Key 4 | `media_next` |
-| Key 11 | hotkey `f13` |
-| Key 12 | hotkey `f14` |
+```json
+{
+  "version": 1,
+  "actions": {
+    "encoder:cw": {
+      "kind": "volume",
+      "value": "volume_up",
+      "display": "volume_bar",
+      "display_value": ""
+    },
+    "key:3:down": {
+      "kind": "media",
+      "value": "media_play_pause",
+      "display": "media_info",
+      "display_value": ""
+    },
+    "key:1:down": {
+      "kind": "toggle",
+      "value": "",
+      "display": "none",
+      "display_value": "",
+      "state": false,
+      "action_on": "hotkey: ctrl+shift+m",
+      "action_off": "hotkey: ctrl+shift+u",
+      "image_on": "C:/pics/on.png",
+      "image_off": "C:/pics/off.png"
+    }
+  }
+}
+```
 
-### `display_rules.json`
+Response kinds: `disabled`, `hotkey`, `macro`, `volume`, `media`, `toggle`.
+Display kinds: `none`, `text`, `image`, `volume_bar`, `media_info`.
 
-Defines what appears on the OLED when an event fires. Default rules show volume bar on encoder events, media info on transport keys, and custom images on F13/F14.
+On first launch the app automatically migrates the legacy `bindings.json` + `display_rules.json` pair into `actions.json`.
+
+### `splash_config.json`
+
+Controls the dynamic splash screen:
+
+```json
+{
+  "mode": "clock",
+  "interval": 2.0,
+  "idle_timeout": 2.0,
+  "template": "{time_short} | {date_short}",
+  "font_size": 12,
+  "alignment": "left",
+  "line_spacing": 2
+}
+```
+
+Modes: `static` (uses `splash.bin`), `clock`, `text`, `custom`.
+`interval` is the splash refresh period, `idle_timeout` is how long the device must be idle before the splash appears. For the text modes (`text`, `custom`) the text is rendered PC-side with a scalable bold font, configurable via `font_size` (8-24), `alignment` (`left`/`center`) and `line_spacing` (0-8). Templates support `{time}`, `{time_short}`, `{date}`, `{date_short}` and `{weekday}`. All settings are editable in the GUI Settings tab.
 
 ## Macro Syntax
 
@@ -126,12 +171,13 @@ Delays accept `ms` or `s` suffix. Lines starting with `#` are ignored.
 
 ## Splash Screen
 
-1. Navigate to the **Display** tab → **Splash** section
-2. Click **Load Saved** to load a previous splash, or edit the OLED preview to create one
-3. Click **Send on Connect** to push the current image to the device immediately
-4. Click **Save Current** to persist it for future sessions
+1. Open the **Settings** tab
+2. Pick a splash **mode** and set the update interval and idle timeout
+3. For `static` mode, click **Load image...** and choose a PNG to convert and store as `app/splash.bin`
+4. For `text`/`custom` modes, tune the **font size**, **line spacing** and **alignment**, and (for `custom`) edit the template with placeholders like `{time}`, `{date}`, `{weekday}`
+5. Click **Preview** to see the result in the OLED preview, then **Save splash settings**
 
-The splash is stored as `app/splash.bin` (512-byte OLED bitmap) and is auto-sent to the device after 2 seconds of inactivity.
+The splash is shown after the configured idle timeout and (for dynamic modes) refreshed at the configured interval.
 
 ## How It Works
 
@@ -140,7 +186,7 @@ Pico (firmware)  <--USB serial (JSON-Lines)-->  Desktop app (Slint GUI)
 ```
 
 - **Connected** -- status updates appear instantly on the OLED
-- **Idle** -- after 2 seconds of no events, the splash screen is shown
+- **Idle** -- after the configured idle timeout, the splash screen is shown
 - **Disconnected** -- the Pico displays "USB READY" and waits for reconnection
 - **Secret mode** -- hold key 1 for 0.7s on the Pico to enter the game launcher; long-press key 1 again to exit
 
@@ -154,18 +200,18 @@ PicoKeypad/
 │   │   ├── __init__.py         # SlintKeypadApp + run()
 │   │   └── main_window.slint   # UI definition
 │   ├── core/                   # Core logic
-│   │   ├── engine.py           # Central engine (serial, bindings, display rules)
-│   │   ├── actions.py          # Action system (hotkeys, macros, keyboard backend)
-│   │   ├── bindings.py         # Binding store (event → action mapping)
-│   │   ├── display_rules.py    # Display rule store (event → OLED content)
+│   │   ├── engine.py           # Central engine (serial, actions, splash)
+│   │   ├── actions.py          # Unified action model (response + display + toggle)
+│   │   ├── actions_store.py    # Event → action mapping (actions.json)
 │   │   ├── serial_transport.py # Serial port client with autodetection
 │   │   ├── protocol.py         # Serial protocol builders & parsers
-│   │   ├── splash_store.py     # Splash screen binary I/O
+│   │   ├── splash_store.py     # Splash binary & splash config I/O
+│   │   ├── splash_renderer.py  # Clock/text rendering for the dynamic splash
 │   │   └── system_status.py    # Windows volume & media status queries
 │   ├── tests/                  # Test suite
-│   ├── bindings.json           # Default key bindings
-│   ├── display_rules.json      # Default display rules
-│   ├── splash.bin              # Saved splash screen
+│   ├── actions.json            # Unified action mappings (migrated from bindings/display rules)
+│   ├── splash.bin              # Saved static splash screen
+│   ├── splash_config.json      # Dynamic splash configuration
 │   └── pyinstaller.spec        # PyInstaller build spec
 ├── firmware/                   # Pico firmware (MicroPython)
 │   ├── main.py                 # Core device loop

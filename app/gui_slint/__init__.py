@@ -4,7 +4,6 @@ import queue
 import sys
 import tempfile
 import threading
-from pathlib import Path
 from typing import Any
 
 import slint
@@ -27,27 +26,31 @@ except Exception:
 
 from ..core import protocol
 from ..core.actions import (
-    ACTION_FUNCTION,
+    ACTION_DISABLED,
     ACTION_HOTKEY,
     ACTION_MACRO,
+    ACTION_MEDIA,
+    ACTION_TOGGLE,
     ACTION_TYPES,
-    Action,
-    FUNCTIONS,
-    KEY_GROUPS,
-    display_lines_from_value,
-)
-from ..core.display_rules import (
+    ACTION_VOLUME,
     DISPLAY_IMAGE,
     DISPLAY_MEDIA,
     DISPLAY_NONE,
     DISPLAY_TEXT,
     DISPLAY_TYPES,
     DISPLAY_VOLUME,
-    DisplayRule,
+    MEDIA_VALUES,
+    VOLUME_VALUES,
+    Action,
+    KEY_GROUPS,
 )
-from ..core.bindings import EVENT_LABELS, EVENTS, LABEL_EVENTS
+from ..core.actions_store import EVENT_LABELS, EVENTS, LABEL_EVENTS
 from ..core.engine import PicoKeypadEngine
-from ..core.system_status import get_media_status, get_volume_status, media_display_lines, volume_display_lines
+from ..core.splash_store import (
+    SPLASH_MODE_STATIC,
+    SPLASH_MODES,
+    SplashConfig,
+)
 
 SCALE = 2
 
@@ -58,8 +61,7 @@ class SlintKeypadApp:
     def __init__(
         self,
         initial_port: str | None = None,
-        bindings_path: str | None = None,
-        display_rules_path: str | None = None,
+        actions_path: str | None = None,
         start_minimized: bool | None = None,
     ):
         if getattr(sys, "frozen", False):
@@ -77,8 +79,7 @@ class SlintKeypadApp:
 
         self._engine = PicoKeypadEngine(
             initial_port=initial_port,
-            bindings_path=bindings_path,
-            display_rules_path=display_rules_path,
+            actions_path=actions_path,
         )
         self._engine.set_auto_reconnect(self._connect_on_start)
         self._msg_queue: queue.Queue[Any] = queue.Queue()
@@ -150,16 +151,20 @@ class SlintKeypadApp:
 
     def _init_properties(self) -> None:
         w = self._w
-        w.binding_events = slint.ListModel(_EVENT_LABELS_LIST)
-        w.binding_kinds = slint.ListModel(list(ACTION_TYPES))
-        w.binding_event = _EVENT_LABELS_LIST[0]
-        w.binding_kind = ACTION_TYPES[0]
-        w.binding_value = ""
-
-        w.display_events = slint.ListModel(_EVENT_LABELS_LIST)
+        w.action_events = slint.ListModel(_EVENT_LABELS_LIST)
+        w.action_kinds = slint.ListModel(list(ACTION_TYPES))
+        w.volume_values = slint.ListModel(list(VOLUME_VALUES))
+        w.media_values = slint.ListModel(list(MEDIA_VALUES))
         w.display_kinds = slint.ListModel(list(DISPLAY_TYPES))
-        w.display_event = _EVENT_LABELS_LIST[0]
-        w.display_kind = DISPLAY_TYPES[0]
+        w.splash_modes = slint.ListModel(list(SPLASH_MODES))
+        w.splash_alignments = slint.ListModel(["left", "center"])
+
+        w.action_event = _EVENT_LABELS_LIST[0]
+        w.action_kind = ACTION_DISABLED
+        w.action_value = ""
+        w.volume_value = VOLUME_VALUES[0]
+        w.media_value = MEDIA_VALUES[0]
+        w.display_kind = DISPLAY_NONE
         w.display_value = ""
 
         keys_list: list[str] = []
@@ -171,17 +176,31 @@ class SlintKeypadApp:
 
         w.log_lines = slint.ListModel([])
         w.port_list = slint.ListModel([])
-        w.bindings_model = slint.ListModel([])
-        w.display_rules_model = slint.ListModel([])
+        w.actions_model = slint.ListModel([])
 
-        self._on_binding_event_selected(_EVENT_LABELS_LIST[0])
-        self._on_display_event_selected(_EVENT_LABELS_LIST[0])
-        self._refresh_bindings_list()
-        self._refresh_display_rules_list()
+        self._load_splash_config_widgets()
+
+        self._on_action_event_selected(_EVENT_LABELS_LIST[0])
+        self._refresh_actions_list()
         self._update_splash_status()
 
         if self._splash_buffer is not None:
             self._update_oled_preview_from_buffer(self._splash_buffer)
+
+    def _load_splash_config_widgets(self) -> None:
+        config = self._engine.get_splash_config()
+        self._w.splash_mode = config.mode
+        self._w.splash_interval = self._format_float(config.interval)
+        self._w.splash_idle = self._format_float(config.idle_timeout)
+        self._w.splash_template = config.template
+        self._w.splash_font_size = str(config.font_size)
+        self._w.splash_line_spacing = str(config.line_spacing)
+        self._w.splash_alignment = config.alignment if config.alignment in ("left", "center") else "left"
+
+    @staticmethod
+    def _format_float(value: float) -> str:
+        text = f"{value:.1f}"
+        return text[:-2] if text.endswith(".0") else text
 
     def _wire_callbacks(self) -> None:
         w = self._w
@@ -192,25 +211,22 @@ class SlintKeypadApp:
         w.encoder_cw_clicked = self._on_encoder_cw
         w.encoder_btn_clicked = self._on_encoder_btn
 
-        w.load_splash_preview = self._on_load_splash_preview
-
-        w.save_binding = self._on_save_binding
-        w.test_binding = self._on_test_binding
-        w.clear_binding = self._on_clear_binding
+        w.save_action = self._on_save_action
+        w.test_action = self._on_test_action
+        w.clear_action = self._on_clear_action
         w.insert_key = self._on_insert_key
-
-        w.save_display_rule = self._on_save_display_rule
-        w.test_display_rule = self._on_test_display_rule
-        w.clear_display_rule = self._on_clear_display_rule
         w.browse_display_image = self._on_browse_display_image
+        w.browse_toggle_image_on = self._on_browse_toggle_image_on
+        w.browse_toggle_image_off = self._on_browse_toggle_image_off
 
-        w.binding_event_changed = self._on_binding_event_selected
-        w.binding_kind_changed = self._on_binding_kind_changed
-        w.binding_item_selected = self._on_binding_item_selected
-
-        w.display_event_changed = self._on_display_event_selected
+        w.action_event_changed = self._on_action_event_selected
+        w.action_kind_changed = self._on_action_kind_changed
+        w.action_item_selected = self._on_action_item_selected
         w.display_kind_changed = self._on_display_kind_changed
-        w.display_item_selected = self._on_display_item_selected
+
+        w.load_splash_image = self._on_load_splash_image
+        w.splash_save = self._on_splash_save
+        w.splash_preview = self._on_splash_preview_button
 
         w.poll_messages = self._poll_messages
         w.watchdog_tick = lambda: None
@@ -233,6 +249,7 @@ class SlintKeypadApp:
         events.set("on_display_buffer", lambda buf: self._msg_queue.put(("display_buffer", buf)))
         events.set("on_connecting", lambda: None)
         events.set("on_device_busy", lambda busy: None)
+        events.set("on_toggle_state", lambda event_id, state: self._msg_queue.put(("toggle_state", event_id, state)))
 
     def _poll_messages(self) -> None:
         while True:
@@ -258,6 +275,8 @@ class SlintKeypadApp:
             self._do_display_lines(item[1])
         elif kind == "display_buffer":
             self._do_display_buffer(item[1])
+        elif kind == "toggle_state":
+            self._refresh_actions_list()
 
     def _do_key_state(self, key: int, pressed: bool) -> None:
         key_props = {
@@ -380,27 +399,27 @@ class SlintKeypadApp:
         self._msg_queue.put(("encoder_clear",))
 
     def _on_key_clicked(self, key: int) -> None:
-        self._select_binding_event(f"key:{key}:down")
+        self._select_action_event(f"key:{key}:down")
 
     def _on_encoder_ccw(self) -> None:
-        self._select_binding_event("encoder:ccw")
+        self._select_action_event("encoder:ccw")
 
     def _on_encoder_cw(self) -> None:
-        self._select_binding_event("encoder:cw")
+        self._select_action_event("encoder:cw")
 
     def _on_encoder_btn(self) -> None:
-        self._select_binding_event("encoder:button_down")
+        self._select_action_event("encoder:button_down")
 
-    def _select_binding_event(self, event_id: str) -> None:
+    def _select_action_event(self, event_id: str) -> None:
         label = EVENT_LABELS.get(event_id, event_id)
-        self._w.binding_event = label
-        self._on_binding_event_selected(label)
+        self._w.action_event = label
+        self._on_action_event_selected(label)
 
-        self._w.selected_binding_index = -1
-        bindings = sorted(self._engine.get_all_bindings().keys())
-        for i, event_item in enumerate(bindings):
+        self._w.selected_action_index = -1
+        actions = sorted(self._engine.get_all_actions().keys())
+        for i, event_item in enumerate(actions):
             if event_item == event_id:
-                self._w.selected_binding_index = i
+                self._w.selected_action_index = i
                 break
 
     def _refresh_ports(self) -> None:
@@ -413,17 +432,20 @@ class SlintKeypadApp:
             self._w.port_text = detected or values[0]
 
     def _splash_status_text(self) -> str:
-        path = self._engine.splash_path()
-        if self._splash_buffer is not None:
-            return f"Splash ready: {path.name} ({len(self._splash_buffer)} bytes)"
-        if path.exists():
-            return f"Splash file present: {path.name}"
-        return f"No splash saved at {path.name}"
+        config = self._engine.get_splash_config()
+        if config.mode == SPLASH_MODE_STATIC:
+            path = self._engine.splash_path()
+            if self._splash_buffer is not None:
+                return f"Splash ready: {path.name} ({len(self._splash_buffer)} bytes)"
+            if path.exists():
+                return f"Splash file present: {path.name}"
+            return f"No splash saved at {path.name}"
+        return f"Splash mode: {config.mode} (auto-refresh)"
 
     def _update_splash_status(self) -> None:
         self._w.splash_status = self._splash_status_text()
 
-    def _on_load_splash_preview(self) -> None:
+    def _on_load_splash_image(self) -> None:
         if not HAS_FILEDIALOG:
             self._log("File dialog not available (tkinter missing)")
             return
@@ -449,191 +471,230 @@ class SlintKeypadApp:
         except Exception as exc:
             self._log(f"Failed to load splash image: {exc}")
 
-    def _on_binding_event_selected(self, label: str) -> None:
-        event_id = LABEL_EVENTS.get(label, label)
-        action = self._engine.get_binding(event_id)
-        self._w.binding_kind = action.kind
-        self._w.binding_value = action.value
-        self._on_binding_kind_changed(action.kind)
+    def _on_splash_save(self) -> None:
+        try:
+            interval = max(0.2, float(self._w.splash_interval))
+        except (TypeError, ValueError):
+            interval = 2.0
+        try:
+            idle = max(0.2, float(self._w.splash_idle))
+        except (TypeError, ValueError):
+            idle = 2.0
+        try:
+            font_size = min(24, max(8, int(float(self._w.splash_font_size))))
+        except (TypeError, ValueError):
+            font_size = 12
+        try:
+            line_spacing = min(8, max(0, int(float(self._w.splash_line_spacing))))
+        except (TypeError, ValueError):
+            line_spacing = 2
 
-    def _on_binding_kind_changed(self, kind: str) -> None:
-        current = self._w.binding_value
-        if kind == ACTION_FUNCTION and current not in FUNCTIONS:
-            self._w.binding_value = "volume_up"
-        elif kind == ACTION_MACRO and not current:
-            self._w.binding_value = (
+        mode = self._w.splash_mode
+        if mode not in SPLASH_MODES:
+            mode = SPLASH_MODE_STATIC
+
+        alignment = self._w.splash_alignment if self._w.splash_alignment in ("left", "center") else "left"
+
+        config = SplashConfig(
+            mode=mode,
+            interval=interval,
+            idle_timeout=idle,
+            template=self._w.splash_template,
+            font_size=font_size,
+            alignment=alignment,
+            line_spacing=line_spacing,
+        )
+        self._engine.set_splash_config(config, persist=True)
+        self._load_splash_config_widgets()
+        self._update_splash_status()
+        self._log(f"Saved splash config: mode={config.mode} interval={config.interval}s idle={config.idle_timeout}s")
+        self._preview_splash()
+
+    def _preview_splash(self) -> None:
+        if not self._engine.is_connected():
+            self._engine.send_splash_to_device()
+
+    def _on_splash_preview_button(self) -> None:
+        self._preview_splash()
+
+    # ---- action editor ----
+
+    def _on_action_event_selected(self, label: str) -> None:
+        event_id = LABEL_EVENTS.get(label, label)
+        action = self._engine.get_action(event_id)
+        self._load_action_into_widgets(action)
+
+    def _load_action_into_widgets(self, action: Action) -> None:
+        w = self._w
+        w.action_kind = action.kind if action.kind in ACTION_TYPES else ACTION_DISABLED
+        w.action_value = action.value if action.kind in (ACTION_HOTKEY, ACTION_MACRO) else ""
+        if action.kind == ACTION_VOLUME and action.value in VOLUME_VALUES:
+            w.volume_value = action.value
+        if action.kind == ACTION_MEDIA and action.value in MEDIA_VALUES:
+            w.media_value = action.value
+        w.toggle_action_on = action.action_on
+        w.toggle_action_off = action.action_off
+        w.toggle_image_on = action.image_on
+        w.toggle_image_off = action.image_off
+        w.display_kind = action.display if action.display in DISPLAY_TYPES else DISPLAY_NONE
+        w.display_value = action.display_value
+
+    def _on_action_kind_changed(self, kind: str) -> None:
+        w = self._w
+        if kind == ACTION_VOLUME:
+            if not w.volume_value:
+                w.volume_value = VOLUME_VALUES[0]
+            if w.display_kind == DISPLAY_NONE:
+                w.display_kind = DISPLAY_VOLUME
+        elif kind == ACTION_MEDIA:
+            if not w.media_value:
+                w.media_value = MEDIA_VALUES[0]
+            if w.display_kind == DISPLAY_NONE:
+                w.display_kind = DISPLAY_MEDIA
+        elif kind == ACTION_MACRO and not w.action_value:
+            w.action_value = (
                 "hotkey: ctrl+c\nsleep: 100\nhotkey: ctrl+v\ndisplay: COPIED | TO CLIPBOARD"
             )
 
-    def _on_binding_item_selected(self, idx: int) -> None:
-        bindings = sorted(self._engine.get_all_bindings().items())
-        if 0 <= idx < len(bindings):
-            event_id = EVENT_LABELS.get(bindings[idx][0], bindings[idx][0])
-            self._w.binding_event = event_id
-            self._on_binding_event_selected(event_id)
+    def _on_display_kind_changed(self, kind: str) -> None:
+        if kind == DISPLAY_TEXT and not self._w.display_value:
+            self._w.display_value = "Button {volume}%\n{mute}"
+
+    def _on_action_item_selected(self, idx: int) -> None:
+        actions = sorted(self._engine.get_all_actions().items())
+        if 0 <= idx < len(actions):
+            event_id = EVENT_LABELS.get(actions[idx][0], actions[idx][0])
+            self._w.action_event = event_id
+            self._on_action_event_selected(event_id)
 
     def _on_insert_key(self) -> None:
         key_name = self._w.selected_key
         if not key_name or key_name.startswith("---"):
             return
 
-        kind = self._w.binding_kind
-        if kind == ACTION_FUNCTION:
-            self._w.binding_value = key_name
-            return
-
-        if kind == ACTION_HOTKEY:
-            current = self._w.binding_value
+        if self._w.action_kind == ACTION_HOTKEY:
+            current = self._w.action_value
             separator = "+" if current and not current.endswith(("+", " ", "\n")) else ""
-            self._w.binding_value = current + separator + key_name
+            self._w.action_value = current + separator + key_name
             return
 
-        if kind == ACTION_MACRO:
-            self._w.binding_value = self._w.binding_value + key_name
+        if self._w.action_kind == ACTION_MACRO:
+            self._w.action_value = self._w.action_value + key_name
             return
 
-        self._w.binding_kind = ACTION_HOTKEY
-        self._w.binding_value = key_name
+        self._w.action_kind = ACTION_HOTKEY
+        self._w.action_value = key_name
 
-    def _on_save_binding(self) -> None:
-        label = self._w.binding_event
+    def _build_action_from_widgets(self) -> Action:
+        w = self._w
+        kind = w.action_kind if w.action_kind in ACTION_TYPES else ACTION_DISABLED
+
+        if kind == ACTION_VOLUME:
+            value = w.volume_value if w.volume_value in VOLUME_VALUES else VOLUME_VALUES[0]
+        elif kind == ACTION_MEDIA:
+            value = w.media_value if w.media_value in MEDIA_VALUES else MEDIA_VALUES[0]
+        elif kind == ACTION_TOGGLE:
+            value = ""
+        else:
+            value = w.action_value
+
+        display = w.display_kind if w.display_kind in DISPLAY_TYPES else DISPLAY_NONE
+        display_value = w.display_value if display in (DISPLAY_TEXT, DISPLAY_IMAGE) else ""
+
+        return Action(
+            kind=kind,
+            value=value,
+            display=display,
+            display_value=display_value,
+            action_on=w.toggle_action_on,
+            action_off=w.toggle_action_off,
+            image_on=w.toggle_image_on,
+            image_off=w.toggle_image_off,
+        )
+
+    def _on_save_action(self) -> None:
+        label = self._w.action_event
         event_id = LABEL_EVENTS.get(label, label)
-        action = Action(kind=self._w.binding_kind, value=self._w.binding_value)
-        self._engine.set_binding(event_id, action)
-        self._refresh_bindings_list()
-        self._log(f"Saved binding {label}")
+        action = self._build_action_from_widgets()
 
-    def _on_clear_binding(self) -> None:
-        label = self._w.binding_event
+        existing = self._engine.get_action(event_id)
+        if existing.kind == ACTION_TOGGLE and action.kind == ACTION_TOGGLE:
+            action.state = existing.state
+
+        self._engine.set_action(event_id, action)
+        self._refresh_actions_list()
+        self._log(f"Saved action {label}")
+
+    def _on_clear_action(self) -> None:
+        label = self._w.action_event
         event_id = LABEL_EVENTS.get(label, label)
-        self._engine.clear_binding(event_id)
-        self._w.binding_kind = ACTION_TYPES[0]
-        self._w.binding_value = ""
-        self._refresh_bindings_list()
-        self._log(f"Cleared binding {label}")
+        self._engine.clear_action(event_id)
+        self._w.action_kind = ACTION_DISABLED
+        self._w.action_value = ""
+        self._w.toggle_action_on = ""
+        self._w.toggle_action_off = ""
+        self._w.toggle_image_on = ""
+        self._w.toggle_image_off = ""
+        self._w.display_kind = DISPLAY_NONE
+        self._w.display_value = ""
+        self._refresh_actions_list()
+        self._log(f"Cleared action {label}")
 
-    def _on_test_binding(self) -> None:
-        action = Action(kind=self._w.binding_kind, value=self._w.binding_value)
+    def _on_test_action(self) -> None:
+        action = self._build_action_from_widgets()
         if not action.enabled():
             self._log("No action to test")
             return
+
         self._engine.run_action(action)
 
-    def _refresh_bindings_list(self) -> None:
+        display = action.display
+        if display == DISPLAY_NONE:
+            display = self._engine.default_display_for_kind(action.kind)
+        if display != DISPLAY_NONE:
+            self._engine.apply_display_response(display, action.display_value)
+
+    def _refresh_actions_list(self) -> None:
         items = []
-        for event_id, action in sorted(self._engine.get_all_bindings().items()):
+        for event_id, action in sorted(self._engine.get_all_actions().items()):
             label = EVENT_LABELS.get(event_id, event_id)
-            items.append(f"{label}  |  {action.kind}  |  {self._short_value(action.value)}")
-        self._w.bindings_model = slint.ListModel(items)
+            detail = self._short_value(action.value)
+            if action.kind == ACTION_TOGGLE:
+                detail = "ON" if action.state else "OFF"
+            items.append(f"{label}  |  {action.kind}  |  {detail}")
+        self._w.actions_model = slint.ListModel(items)
 
-    def _on_display_event_selected(self, label: str) -> None:
-        event_id = LABEL_EVENTS.get(label, label)
-        rule = self._engine.get_display_rule(event_id)
-        self._w.display_kind = rule.kind
-        self._w.display_value = rule.value
-        self._on_display_kind_changed(rule.kind)
-
-    def _on_display_kind_changed(self, kind: str) -> None:
-        current = self._w.display_value
-        if kind == DISPLAY_TEXT and not current:
-            self._w.display_value = "Button {volume}%\n{mute}"
-        elif kind == DISPLAY_VOLUME:
-            self._w.display_value = "System master volume"
-        elif kind == DISPLAY_MEDIA:
-            self._w.display_value = "Current media session"
-        elif kind == DISPLAY_IMAGE and current in ("System master volume", "Current media session"):
-            self._w.display_value = ""
-
-    def _on_display_item_selected(self, idx: int) -> None:
-        rules = sorted(self._engine.get_all_display_rules().items())
-        if 0 <= idx < len(rules):
-            event_id = EVENT_LABELS.get(rules[idx][0], rules[idx][0])
-            self._w.display_event = event_id
-            self._on_display_event_selected(event_id)
-
-    def _on_save_display_rule(self) -> None:
-        label = self._w.display_event
-        event_id = LABEL_EVENTS.get(label, label)
-        kind = self._w.display_kind
-        value = "" if kind in (DISPLAY_VOLUME, DISPLAY_MEDIA) else self._w.display_value
-        rule = DisplayRule(kind=kind, value=value)
-        self._engine.set_display_rule(event_id, rule)
-        self._refresh_display_rules_list()
-        self._log(f"Saved display rule {label}")
-
-    def _on_clear_display_rule(self) -> None:
-        label = self._w.display_event
-        event_id = LABEL_EVENTS.get(label, label)
-        self._engine.clear_display_rule(event_id)
-        self._w.display_kind = DISPLAY_NONE
-        self._w.display_value = ""
-        self._refresh_display_rules_list()
-        self._log(f"Cleared display rule {label}")
-
-    def _on_test_display_rule(self) -> None:
-        kind = self._w.display_kind
-        value = "" if kind in (DISPLAY_VOLUME, DISPLAY_MEDIA) else self._w.display_value
-        rule = DisplayRule(kind=kind, value=value)
-        if not rule.enabled():
-            self._log("No display rule to test")
-            return
-        self._apply_display_rule(rule)
-
-    def _apply_display_rule(self, rule: DisplayRule) -> None:
-        if rule.kind == DISPLAY_TEXT:
-            lines = display_lines_from_value(rule.value)
-            if self._engine.is_connected():
-                self._engine.send_text_to_display(lines)
-            else:
-                self._update_oled_preview_from_lines(lines)
-        elif rule.kind == DISPLAY_IMAGE:
-            if self._engine.is_connected():
-                self._engine.send_image_to_display(rule.value)
-            else:
-                try:
-                    pil_img = PILImage.open(rule.value.strip())
-                    buffer = self._engine.pil_image_to_oled_buffer(pil_img)
-                    self._update_oled_preview_from_buffer(buffer)
-                except Exception as exc:
-                    self._log(f"Display image failed: {exc}")
-        elif rule.kind == DISPLAY_VOLUME:
-            lines = volume_display_lines(get_volume_status())
-            if self._engine.is_connected():
-                try:
-                    self._engine.client.send_text(lines)
-                except Exception:
-                    pass
-            self._update_oled_preview_from_lines(lines)
-        elif rule.kind == DISPLAY_MEDIA:
-            lines = media_display_lines(get_media_status())
-            if self._engine.is_connected():
-                try:
-                    self._engine.client.send_text(lines)
-                except Exception:
-                    pass
-            self._update_oled_preview_from_lines(lines)
+    # ---- image browsing ----
 
     def _on_browse_display_image(self) -> None:
-        if not HAS_FILEDIALOG:
-            self._log("File dialog not available (tkinter missing)")
-            return
-        path = filedialog.askopenfilename(
-            filetypes=(
-                ("Images", "*.png *.gif *.ppm *.pgm"),
-                ("All files", "*.*"),
-            )
-        )
+        path = self._ask_image_path()
         if not path:
             return
         self._w.display_kind = DISPLAY_IMAGE
         self._w.display_value = path
 
-    def _refresh_display_rules_list(self) -> None:
-        items = []
-        for event_id, rule in sorted(self._engine.get_all_display_rules().items()):
-            label = EVENT_LABELS.get(event_id, event_id)
-            items.append(f"{label}  |  {rule.kind}  |  {self._short_value(rule.value)}")
-        self._w.display_rules_model = slint.ListModel(items)
+    def _on_browse_toggle_image_on(self) -> None:
+        path = self._ask_image_path()
+        if path:
+            self._w.toggle_image_on = path
+
+    def _on_browse_toggle_image_off(self) -> None:
+        path = self._ask_image_path()
+        if path:
+            self._w.toggle_image_off = path
+
+    def _ask_image_path(self) -> str:
+        if not HAS_FILEDIALOG:
+            self._log("File dialog not available (tkinter missing)")
+            return ""
+        return filedialog.askopenfilename(
+            filetypes=(
+                ("Images", "*.png *.gif *.ppm *.pgm *.jpg *.jpeg *.bmp"),
+                ("All files", "*.*"),
+            )
+        )
+
+    # ---- OLED preview ----
 
     def _update_oled_preview_from_lines(self, lines: list[str]) -> None:
         try:
@@ -690,14 +751,12 @@ class SlintKeypadApp:
 
 def run(
     port: str | None = None,
-    bindings_path: str | None = None,
-    display_rules_path: str | None = None,
+    actions_path: str | None = None,
     start_minimized: bool | None = None,
 ) -> None:
     app = SlintKeypadApp(
         initial_port=port,
-        bindings_path=bindings_path,
-        display_rules_path=display_rules_path,
+        actions_path=actions_path,
         start_minimized=start_minimized,
     )
     app.run()

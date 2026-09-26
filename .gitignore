@@ -1,9 +1,11 @@
 /.agents/
 /.venv/
 /app/pictures/
+/app/actions.json
 /app/bindings.json
 /app/display_rules.json
 /app/splash.bin
+/app/splash_config.json
 /dist/
 /build/
 /app/settings.json

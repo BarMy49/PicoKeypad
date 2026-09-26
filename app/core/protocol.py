@@ -6,6 +6,7 @@ from typing import Any
 DISPLAY_WIDTH = 128
 DISPLAY_HEIGHT = 32
 DISPLAY_BUFFER_SIZE = (DISPLAY_WIDTH * DISPLAY_HEIGHT) // 8
+DISPLAY_TEXT_MAX_CHARS = 16
 
 
 def parse_serial_line(line: bytes | str) -> dict[str, Any]:

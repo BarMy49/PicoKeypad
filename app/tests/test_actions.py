@@ -1,17 +1,26 @@
 import unittest
+from unittest.mock import MagicMock
 
 from app.core.actions import (
     ACTION_DISABLED,
-    ACTION_FUNCTION,
     ACTION_HOTKEY,
     ACTION_MACRO,
-    ACTION_TEXT,
+    ACTION_MEDIA,
+    ACTION_TOGGLE,
     ACTION_TYPES,
+    ACTION_VOLUME,
+    DISPLAY_IMAGE,
+    DISPLAY_MEDIA,
+    DISPLAY_NONE,
+    DISPLAY_TEXT,
+    DISPLAY_TYPES,
+    DISPLAY_VOLUME,
     Action,
-    ActionError,
     ActionRunner,
     KEY_GROUPS,
     KEY_NAMES,
+    MEDIA_VALUES,
+    VOLUME_VALUES,
     parse_delay,
     parse_hotkey,
     split_macro_line,
@@ -42,18 +51,78 @@ class ActionTests(unittest.TestCase):
         a = Action(kind=ACTION_HOTKEY, value="   ")
         self.assertFalse(a.enabled())
 
+    def test_volume_action_enabled(self):
+        a = Action(kind=ACTION_VOLUME, value="volume_up")
+        self.assertTrue(a.enabled())
+
+    def test_media_action_enabled(self):
+        a = Action(kind=ACTION_MEDIA, value="media_play_pause")
+        self.assertTrue(a.enabled())
+
+    def test_toggle_action_enabled_without_value(self):
+        a = Action(kind=ACTION_TOGGLE, value="")
+        self.assertTrue(a.enabled())
+
+    def test_display_only_action_enabled(self):
+        a = Action(kind=ACTION_DISABLED, value="", display=DISPLAY_TEXT, display_value="hello")
+        self.assertTrue(a.enabled())
+
+    def test_display_volume_enabled_without_value(self):
+        a = Action(kind=ACTION_DISABLED, value="", display=DISPLAY_VOLUME, display_value="")
+        self.assertTrue(a.enabled())
+
+    def test_display_media_enabled_without_value(self):
+        a = Action(kind=ACTION_DISABLED, value="", display=DISPLAY_MEDIA, display_value="")
+        self.assertTrue(a.enabled())
+
     def test_to_dict(self):
         a = Action(kind=ACTION_MACRO, value="sleep: 100")
-        self.assertEqual(a.to_dict(), {"kind": ACTION_MACRO, "value": "sleep: 100"})
+        self.assertEqual(a.to_dict(), {
+            "kind": ACTION_MACRO,
+            "value": "sleep: 100",
+            "display": DISPLAY_NONE,
+            "display_value": "",
+        })
+
+    def test_to_dict_toggle_includes_state_fields(self):
+        a = Action(
+            kind=ACTION_TOGGLE,
+            state=True,
+            action_on="hotkey: ctrl+a",
+            action_off="hotkey: ctrl+b",
+            image_on="on.png",
+            image_off="off.png",
+        )
+        d = a.to_dict()
+        self.assertEqual(d["kind"], ACTION_TOGGLE)
+        self.assertTrue(d["state"])
+        self.assertEqual(d["action_on"], "hotkey: ctrl+a")
+        self.assertEqual(d["action_off"], "hotkey: ctrl+b")
+        self.assertEqual(d["image_on"], "on.png")
+        self.assertEqual(d["image_off"], "off.png")
 
     def test_from_dict_valid(self):
-        a = Action.from_dict({"kind": ACTION_FUNCTION, "value": "volume_up"})
-        self.assertEqual(a.kind, ACTION_FUNCTION)
+        a = Action.from_dict({"kind": ACTION_VOLUME, "value": "volume_up"})
+        self.assertEqual(a.kind, ACTION_VOLUME)
         self.assertEqual(a.value, "volume_up")
+
+    def test_from_dict_display_fields(self):
+        a = Action.from_dict({
+            "kind": ACTION_HOTKEY,
+            "value": "f13",
+            "display": DISPLAY_IMAGE,
+            "display_value": "img.png",
+        })
+        self.assertEqual(a.display, DISPLAY_IMAGE)
+        self.assertEqual(a.display_value, "img.png")
 
     def test_from_dict_invalid_kind_defaults_to_disabled(self):
         a = Action.from_dict({"kind": "invalid_kind", "value": "x"})
         self.assertEqual(a.kind, ACTION_DISABLED)
+
+    def test_from_dict_invalid_display_defaults_to_none(self):
+        a = Action.from_dict({"kind": ACTION_HOTKEY, "value": "f13", "display": "bogus"})
+        self.assertEqual(a.display, DISPLAY_NONE)
 
     def test_from_dict_none_returns_default(self):
         a = Action.from_dict(None)
@@ -64,20 +133,45 @@ class ActionTests(unittest.TestCase):
         self.assertEqual(a.kind, ACTION_DISABLED)
 
     def test_from_dict_missing_value_defaults_empty(self):
-        a = Action.from_dict({"kind": ACTION_TEXT})
+        a = Action.from_dict({"kind": ACTION_HOTKEY})
         self.assertEqual(a.value, "")
+
+    def test_toggle_roundtrip(self):
+        a = Action(
+            kind=ACTION_TOGGLE,
+            state=True,
+            action_on="hotkey: ctrl+shift+m",
+            action_off="hotkey: ctrl+shift+u",
+            image_on="on.png",
+            image_off="off.png",
+        )
+        restored = Action.from_dict(a.to_dict())
+        self.assertEqual(restored, a)
 
 
 class ActionTypesTests(unittest.TestCase):
     def test_action_types_tuple_contains_all(self):
         self.assertIn(ACTION_DISABLED, ACTION_TYPES)
         self.assertIn(ACTION_HOTKEY, ACTION_TYPES)
-        self.assertIn(ACTION_TEXT, ACTION_TYPES)
-        self.assertIn(ACTION_FUNCTION, ACTION_TYPES)
         self.assertIn(ACTION_MACRO, ACTION_TYPES)
+        self.assertIn(ACTION_VOLUME, ACTION_TYPES)
+        self.assertIn(ACTION_MEDIA, ACTION_TYPES)
+        self.assertIn(ACTION_TOGGLE, ACTION_TYPES)
 
     def test_action_types_length(self):
         self.assertEqual(len(ACTION_TYPES), 6)
+
+    def test_display_types_contains_all(self):
+        self.assertIn(DISPLAY_NONE, DISPLAY_TYPES)
+        self.assertIn(DISPLAY_TEXT, DISPLAY_TYPES)
+        self.assertIn(DISPLAY_IMAGE, DISPLAY_TYPES)
+        self.assertIn(DISPLAY_VOLUME, DISPLAY_TYPES)
+        self.assertIn(DISPLAY_MEDIA, DISPLAY_TYPES)
+        self.assertEqual(len(DISPLAY_TYPES), 5)
+
+    def test_volume_media_value_lists(self):
+        self.assertEqual(len(VOLUME_VALUES), 3)
+        self.assertEqual(len(MEDIA_VALUES), 4)
 
 
 class ParseHotkeyTests(unittest.TestCase):
@@ -198,6 +292,7 @@ class KeyGroupsTests(unittest.TestCase):
         self.assertIn("a", names_set)
         self.assertIn("f1", names_set)
         self.assertIn("volume_up", names_set)
+        self.assertIn("media_play_pause", names_set)
         self.assertIn("enter", names_set)
 
 
@@ -215,42 +310,87 @@ class ActionRunnerTests(unittest.TestCase):
         self.assertEqual(self.errors, [])
         self.assertEqual(self.displays, [])
 
-
     def test_macro_display_command(self):
-        import time
         a = Action(kind=ACTION_MACRO, value="display: macro text")
         self.runner.run(a)
-        time.sleep(0.2)
         self.assertEqual(len(self.displays), 1)
 
     def test_macro_sleep_command(self):
-        import time
         a = Action(kind=ACTION_MACRO, value="sleep: 50\ndisplay: after sleep")
         self.runner.run(a)
-        time.sleep(0.2)
         self.assertEqual(len(self.displays), 1)
 
     def test_macro_comments_skipped(self):
-        import time
         a = Action(kind=ACTION_MACRO, value="# comment\ndisplay: actual")
         self.runner.run(a)
-        time.sleep(0.2)
         self.assertEqual(len(self.displays), 1)
 
     def test_macro_clear_display_command(self):
-        import time
         a = Action(kind=ACTION_MACRO, value="clear_display")
         self.runner.run(a)
-        time.sleep(0.2)
         self.assertEqual(len(self.displays), 1)
 
-
     def test_macro_unknown_command_raises(self):
-        import time
         a = Action(kind=ACTION_MACRO, value="bogus: 123")
         self.runner.run(a)
-        time.sleep(0.2)
         self.assertEqual(len(self.errors), 1)
+
+    def test_toggle_executes_on_branch(self):
+        executed = []
+
+        class MockRunner(ActionRunner):
+            def _execute_string_action(self, action_str: str) -> None:
+                executed.append(action_str)
+
+        runner = MockRunner()
+        action = Action(kind=ACTION_TOGGLE, state=True, action_on="hotkey: ctrl+a", action_off="hotkey: ctrl+b")
+        runner.run(action)
+        self.assertEqual(executed, ["hotkey: ctrl+a"])
+
+        executed.clear()
+        action.state = False
+        runner.run(action)
+        self.assertEqual(executed, ["hotkey: ctrl+b"])
+
+    def test_toggle_empty_branch_does_nothing(self):
+        executed = []
+
+        class MockRunner(ActionRunner):
+            def _execute_string_action(self, action_str: str) -> None:
+                executed.append(action_str)
+
+        runner = MockRunner()
+        runner.run(Action(kind=ACTION_TOGGLE, state=False, action_on="", action_off=""))
+        self.assertEqual(executed, [])
+
+
+class StringActionTests(unittest.TestCase):
+    def setUp(self):
+        self.runner = ActionRunner()
+        self.runner.keyboard = MagicMock()
+
+    def test_bare_key_falls_back_to_hotkey(self):
+        self.runner._execute_string_action("f13")
+        self.runner.keyboard.press_hotkey.assert_called_once_with("f13")
+
+    def test_bare_combo_falls_back_to_hotkey(self):
+        self.runner._execute_string_action("ctrl+shift+a")
+        self.runner.keyboard.press_hotkey.assert_called_once_with("ctrl+shift+a")
+
+    def test_known_commands_dispatch(self):
+        self.runner._execute_string_action("hotkey: f13")
+        self.runner.keyboard.press_hotkey.assert_called_once_with("f13")
+        self.runner._execute_string_action("key: volume_up")
+        self.runner.keyboard.press_key.assert_called_once_with("volume_up")
+        self.runner._execute_string_action("text: hi")
+        self.runner.keyboard.type_text.assert_called_once_with("hi")
+
+    def test_macro_command(self):
+        displays = []
+        runner = ActionRunner(on_display=lambda lines: displays.append(lines))
+        runner.keyboard = MagicMock()
+        runner._execute_string_action("macro: display: hello")
+        self.assertEqual(len(displays), 1)
 
 
 if __name__ == "__main__":
